@@ -58,8 +58,9 @@ plana tenía que inventarse la luz y, de paso, cambiaba materiales según la sem
 2. Ese render es la imagen base de FLUX.2 klein (dos pasadas, 1920 px), que lo convierte
    en fotografía con la luz y los materiales ya resueltos. ~45 s más.
 3. **Colores fijados** (`colormatch.py`): la IA a veces cambia el tono de superficies grandes
-   (suelo, muebles, latón). Se conserva su luminosidad y detalle y se toma de Cycles el color a
-   escala media (canales a/b de Lab desenfocados). Determinista, menos de 1 s.
+   (suelo, muebles, latón). Se conserva su luminosidad y detalle y se toma de Cycles la
+   cromaticidad (proporción R:G:B en luz lineal) a escala media, que no depende del brillo:
+   la luz cálida de noche sigue cálida aunque la IA aclare. Determinista, unos 4 s.
 
 Si Cycles no está o falla, «Alta calidad» sigue con la imagen base sencilla (se anota en
 `logs/render.log`). «Preparar AIRE» lo instala (unos 700 MB); en instalaciones anteriores se
