@@ -208,6 +208,15 @@ function bar(id, percent) {
   el.firstElementChild.style.width = indet ? "" : Math.max(2, Math.min(100, percent)) + "%";
 }
 
+// Si la tarea no da señales un rato, decirlo (para no mirar una barra congelada sin saber)
+function quietFor(updated) {
+  if (!updated) return "";
+  const secs = Date.now() / 1000 - updated;
+  if (secs < 60) return "";
+  const mins = Math.floor(secs / 60);
+  return ` · sin noticias desde hace ${mins} min`;
+}
+
 function renderSetup(setup) {
   const st = setup ? setup.state : null;
   show("setup-welcome", !st || st === "done");
@@ -223,7 +232,7 @@ function renderSetup(setup) {
       li.lastChild.textContent = name;
       list.appendChild(li);
     });
-    $("setup-detail").textContent = setup.detail || "";
+    $("setup-detail").textContent = (setup.detail || "") + quietFor(setup.updated);
     bar("setup-bar", setup.percent);
   } else if (st === "error" || st === "interrupted") {
     $("setup-error-text").textContent = st === "interrupted"
@@ -244,7 +253,7 @@ function renderJob(job) {
   $("btn-render").textContent = busy ? "Creando…" : "Crear imagen de esta vista";
   if (busy) {
     $("job-title").textContent = (job.title || "Creando la imagen") + "…";
-    $("job-detail").textContent = job.detail || "";
+    $("job-detail").textContent = (job.detail || "") + quietFor(job.updated);
     bar("job-bar", job.percent);
   } else if (st === "error" || st === "interrupted") {
     $("job-error-text").textContent = st === "interrupted"

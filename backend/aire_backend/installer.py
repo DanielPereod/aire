@@ -58,6 +58,35 @@ STEPS = [
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 
 
+class SpeedMeter:
+    """Velocidad de descarga media de los últimos ~15 s."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self) -> None:
+        self.key = None
+        self.samples: list[tuple[float, int]] = []
+
+    def update(self, key: str, done: int, window: float = 15.0) -> float | None:
+        now = time.time()
+        if key != self.key:
+            self.key, self.samples = key, []
+        self.samples.append((now, done))
+        while len(self.samples) > 2 and now - self.samples[0][0] > window:
+            self.samples.pop(0)
+        t0, d0 = self.samples[0]
+        return (done - d0) / (now - t0) if now - t0 >= 2 and done > d0 else None
+
+
+def _eta(seconds: float) -> str:
+    if seconds < 90:
+        return "menos de 2 min"
+    if seconds < 3600:
+        return f"{round(seconds / 60)} min"
+    return f"{int(seconds // 3600)} h {round(seconds % 3600 / 60)} min"
+
+
 def load_config(home: Path) -> dict:
     p = home / "config.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
@@ -101,6 +130,7 @@ class Installer:
         self.log = log
         self.run = runner or self._run
         self.fetch = fetcher or fetch
+        self.sleep = time.sleep
         self.cfg = load_config(home)
 
     # ------------------------------------------------------------------ utilidades
@@ -209,23 +239,40 @@ class Installer:
         self.cfg["comfy_env_ok"] = True
         save_config(self.home, self.cfg)
 
-    def get_models(self) -> None:
+    def get_models(self, attempts: int = 6) -> None:
         preset = self.cfg["preset"]
         todo = missing_files(preset, self.comfy_dir)
         self.progress.step(4, f"{len(todo)} ficheros por descargar" if todo else "Ya descargado", 0)
+        speed = SpeedMeter()
 
         def on_progress(f, i, n, done, total):
             pct = 100 * done / total if total else None
-            self.progress.update(f"Fichero {i + 1} de {n}: {done / 2**30:.1f} de {total / 2**30:.1f} GB", pct)
+            text = f"Fichero {i + 1} de {n}: {done / 2**30:.1f} de {total / 2**30:.1f} GB"
+            rate = speed.update(f.name, done)
+            if rate:
+                text += f" · {rate / 2**20:.0f} MB/s"
+                if total > done:
+                    text += f" · quedan {_eta((total - done) / rate)}"
+            self.progress.update(text, pct)
 
-        try:
-            download(preset, self.comfy_dir, on_progress)
-        except OSError as e:
-            if getattr(e, "errno", None) == 28 or getattr(e, "winerror", None) == 112:  # disco lleno
-                raise UserError("El disco se ha llenado durante la descarga. Libera espacio y pulsa "
-                                "«Continuar»: seguirá donde se quedó.") from e
-            raise UserError("Se ha cortado la descarga del modelo. Vuelve a pulsar «Preparar AIRE»: "
-                            "continuará donde se quedó.") from e
+        for attempt in range(1, attempts + 1):
+            try:
+                download(preset, self.comfy_dir, on_progress)
+                break
+            except OSError as e:
+                if getattr(e, "errno", None) == 28 or getattr(e, "winerror", None) == 112:  # disco lleno
+                    raise UserError("El disco se ha llenado durante la descarga. Libera espacio y pulsa "
+                                    "«Continuar»: seguirá donde se quedó.") from e
+                if attempt == attempts:
+                    raise UserError("Se ha cortado la descarga del modelo varias veces. Comprueba la conexión "
+                                    "y pulsa «Continuar»: seguirá donde se quedó.") from e
+                wait = min(60, 5 * 2 ** (attempt - 1))
+                with open(self.log, "a", encoding="utf-8") as lf:
+                    lf.write(f"Descarga interrumpida ({e!r}); reintento {attempt}/{attempts - 1} en {wait} s\n")
+                for left in range(wait, 0, -1):
+                    self.progress.update(f"Se ha cortado la conexión. Reintentando en {left} s…", None)
+                    self.sleep(1)
+                speed.reset()
         self.cfg["models_ok"] = True
         save_config(self.home, self.cfg)
 

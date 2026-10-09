@@ -100,10 +100,19 @@ def test_full_install_and_idempotent(env, monkeypatch):
 
 
 def test_resume_after_cut_download(env, monkeypatch):
-    fakes = Fakes(fail_model_once=True)
-    patch_model_download(monkeypatch, fakes)
+    """Si la conexión falla una y otra vez, se rinde con un mensaje claro y
+    «Continuar» reanuda sin volver a descargar lo que ya estaba."""
+    fakes = Fakes()
+
+    def always_cut(url, dest, on_bytes=None):
+        if url.endswith(".zip"):
+            return fakes.fetcher(url, dest, on_bytes)
+        raise ConnectionError("conexión cortada")
+
+    monkeypatch.setattr("aire_backend.models.fetch", always_cut)
     i, _ = make(env, fakes)
-    with pytest.raises(UserError, match="continuará donde se quedó"):
+    i.sleep = lambda s: None
+    with pytest.raises(UserError, match="pulsa «Continuar»"):
         i.install()
     assert not json.loads((env / "config.json").read_text()).get("ready")
     fakes2 = Fakes()
@@ -267,3 +276,58 @@ def test_foreign_python_venv_is_rebuilt(env, monkeypatch):
     make(env, fakes)[0].install()
     assert any(c[1] == "venv" for c in fakes.commands)
     assert inst.uses_own_python(venv, env)
+
+
+class TruncatingHandler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Length", "1000")
+        self.end_headers()
+        self.wfile.write(b"x" * 400)  # se corta a mitad
+        self.wfile.flush()
+        self.close_connection = True
+
+
+def test_truncated_download_is_not_accepted(tmp_path):
+    srv = HTTPServer(("127.0.0.1", 0), TruncatingHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    dest = tmp_path / "m.safetensors"
+    with pytest.raises(ConnectionError):
+        fetch(f"http://127.0.0.1:{srv.server_port}/m", dest)
+    srv.shutdown()
+    assert not dest.exists()  # nunca un modelo corrupto como si estuviera completo
+    assert (tmp_path / "m.safetensors.part").stat().st_size == 400  # se reanudará desde aquí
+
+
+def test_model_download_retries_automatically(env, monkeypatch):
+    fakes = Fakes()
+    failures = {"left": 2}
+    good = fakes.fetcher
+
+    def flaky(url, dest, on_bytes=None):
+        if not url.endswith(".zip") and failures["left"]:
+            failures["left"] -= 1
+            raise ConnectionError("conexión perdida")
+        good(url, dest, on_bytes)
+
+    monkeypatch.setattr("aire_backend.models.fetch", flaky)
+    i, progress = make(env, fakes)
+    i.fetch = flaky
+    i.sleep = lambda s: None
+    i.install()
+    assert json.loads((env / "config.json").read_text())["ready"]
+    assert "reintento 2/5" in (env / "install.log").read_text(encoding="utf-8")
+
+
+def test_speed_and_eta_texts():
+    from aire_backend.installer import SpeedMeter, _eta
+    m = SpeedMeter()
+    m.samples = [(0.0, 0)]
+    m.key = "f"
+    import time as _t
+    rate = m.update("f", 100 * 2**20)  # muchos segundos después de t=0
+    assert rate and rate > 0
+    assert _eta(30) == "menos de 2 min" and _eta(600) == "10 min" and _eta(5400) == "1 h 30 min"

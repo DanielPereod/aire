@@ -9,6 +9,7 @@ Las URLs y carpetas salen de los blueprints oficiales de ComfyUI (octubre 2026).
 from __future__ import annotations
 
 import argparse
+import http.client
 import sys
 import urllib.request
 from dataclasses import dataclass, field
@@ -124,16 +125,22 @@ def fetch(url: str, dest: Path, on_bytes=None, chunk: int = 1 << 22) -> None:
     tmp = dest.with_name(dest.name + ".part")
     done = tmp.stat().st_size if tmp.exists() else 0
     req = urllib.request.Request(url, headers={"User-Agent": "AIRE", **({"Range": f"bytes={done}-"} if done else {})})
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with urllib.request.urlopen(req, timeout=30) as r:  # sin datos 30 s = conexión colgada
         if done and r.status != 206:  # el servidor no admite reanudar: desde cero
             done = 0
         total = int(r.headers.get("Content-Length") or 0) + done
-        with open(tmp, "ab" if done else "wb") as out:
-            while data := r.read(chunk):
-                out.write(data)
-                done += len(data)
-                if on_bytes:
-                    on_bytes(done, total)
+        try:
+            with open(tmp, "ab" if done else "wb") as out:
+                while data := r.read(chunk):
+                    out.write(data)
+                    done += len(data)
+                    if on_bytes:
+                        on_bytes(done, total)
+        except http.client.HTTPException as e:  # p. ej. IncompleteRead: la conexión se cerró
+            raise ConnectionError(f"descarga interrumpida: {e!r}") from e
+    # Si la conexión se cierra a medias sin error, no dar por bueno un fichero incompleto
+    if total and done < total:
+        raise ConnectionError(f"descarga incompleta: {done} de {total} bytes")
     tmp.replace(dest)
 
 
