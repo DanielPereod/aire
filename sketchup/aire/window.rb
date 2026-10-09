@@ -208,7 +208,7 @@ module Aire
           thumb = img['thumb'] && File.exist?(img['thumb']) ? Base64.strict_encode64(File.binread(img['thumb'])) : nil
           items << { path: img['path'], thumb: thumb && "data:image/jpeg;base64,#{thumb}",
                      style: res['style'], light: res['light'], text: res['user_prompt'],
-                     created: res['created'], label: img['label'] }
+                     created: res['created'], label: img['label'], quality: res['quality'] }
         end
         break if items.size >= limit
       end

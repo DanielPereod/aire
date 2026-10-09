@@ -48,13 +48,14 @@ def settings(**kw):
     return ZImageSettings(width=512, height=336, prompt="test", **kw)
 
 
-@pytest.mark.parametrize("s", sweep_grid(settings()))
+@pytest.mark.parametrize("s", sweep_grid(settings()) + [settings(refine=0.3), settings(refine=0.3, denoise=1.0)])
 def test_workflows_validate(s):
     wf = zimage_control(s, "aire/d.png", "aire/l.png", "aire/a.png")
     assert validate(wf, OBJECT_INFO) == []
     types = [n["class_type"] for n in wf.values()]
-    assert types.count("ZImageFunControlnet") == (2 if s.lines_strength > 0 else 1)
+    assert types.count("ZImageFunControlnet") == (2 if s.lines_strength > 0 else 1) + (1 if s.refine > 0 else 0)
     assert ("VAEEncode" in types) == (s.denoise < 1.0)
+    assert types.count("KSampler") == (2 if s.refine > 0 else 1)
 
 
 def test_validate_reports_missing_model_and_node():
@@ -177,7 +178,8 @@ def test_real_comfy_accepts_all_sweep_workflows(tmp_path):
     Image.new("RGB", (64, 64)).save(img)
     name = client.upload_image(img)
     info = client.object_info()
-    for s in sweep_grid(settings()):
+    from dataclasses import replace as _replace
+    for s in sweep_grid(settings()) + [_replace(x, refine=0.3) for x in sweep_grid(settings())[:2]]:
         wf = zimage_control(s, name, name, name)
         assert validate(wf, info) == []
         req = urllib.request.Request(url + "/prompt", json.dumps({"prompt": wf}).encode(),

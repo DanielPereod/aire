@@ -45,12 +45,14 @@ def prepare_passes(export_dir: str, width: int, section_keep: str = "auto") -> t
 
 
 def sweep_grid(base: ZImageSettings) -> list[ZImageSettings]:
-    grid = itertools.product((0.6, 0.9), (0.0, 0.5), (1.0, 0.9))
+    """8 variantes alrededor de los valores por defecto (misma semilla) para afinar."""
+    grid = itertools.product((0.5, 0.75), (0.15, 0.35), (1.0, 0.85))
     return [replace(base, depth_strength=d, lines_strength=l, denoise=n) for d, l, n in grid]
 
 
 def label(s: ZImageSettings) -> str:
-    return f"depth {s.depth_strength:.2f} · lines {s.lines_strength:.2f} · denoise {s.denoise:.2f}"
+    text = f"depth {s.depth_strength:.2f} · lines {s.lines_strength:.2f} · denoise {s.denoise:.2f}"
+    return text + (f" · refine {s.refine:.2f}" if s.refine else "")
 
 
 def contact_sheet(items: list[tuple[Image.Image, str]], cols: int = 4, tile_w: int = 480) -> Image.Image:
@@ -107,9 +109,10 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--width", type=int, default=1536)
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--steps", type=int, default=9)
-    ap.add_argument("--depth", type=float, default=0.8, help="fuerza del control de profundidad")
-    ap.add_argument("--lines", type=float, default=0.5, help="fuerza del control de líneas (0 = sin líneas)")
-    ap.add_argument("--denoise", type=float, default=1.0, help="<1 parte del albedo (colores del modelo)")
+    ap.add_argument("--depth", type=float, default=0.65, help="fuerza del control de profundidad")
+    ap.add_argument("--lines", type=float, default=0.25, help="fuerza del control de líneas (0 = sin líneas)")
+    ap.add_argument("--denoise", type=float, default=0.88, help="<1 parte del albedo (colores del modelo)")
+    ap.add_argument("--refine", type=float, default=0.3, help="segunda pasada de realismo (0 = sin ella)")
     ap.add_argument("--weight-dtype", default="fp8_e4m3fn", help="'default' (bf16) con ≥16 GB de VRAM")
     ap.add_argument("--section-keep", choices=["auto", "positive", "negative"], default="auto")
     ap.add_argument("--sweep", action="store_true", help="probar 8 combinaciones de ajustes con la misma semilla")
@@ -124,7 +127,7 @@ def main(argv: list[str] | None = None) -> None:
         width=passes.width, height=passes.height, prompt=prompt,
         seed=args.seed if args.seed is not None else random.randint(0, 2**31 - 1),
         steps=args.steps, weight_dtype=args.weight_dtype,
-        depth_strength=args.depth, lines_strength=args.lines, denoise=args.denoise)
+        depth_strength=args.depth, lines_strength=args.lines, denoise=args.denoise, refine=args.refine)
     runs = sweep_grid(base) if args.sweep else [base]
 
     out_dir = scene.root / "renders" / time.strftime("%Y%m%d-%H%M%S")

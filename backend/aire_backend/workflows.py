@@ -24,11 +24,16 @@ class ZImageSettings:
     scheduler: str = "simple"
     shift: float = 3.0
     weight_dtype: str = "fp8_e4m3fn"  # "default" con ≥16 GB de VRAM
-    depth_strength: float = 0.8
-    depth_end: float = 1.0
-    lines_strength: float = 0.5
-    lines_end: float = 0.8
-    denoise: float = 1.0  # < 1 parte del albedo (colores y materiales del modelo)
+    # Los controles fijan la composición en los primeros pasos y luego se retiran, para
+    # dejar al modelo libertad en luz y texturas. Con controles fuertes hasta el final
+    # (primera prueba real) el resultado parecía un dibujo: contornos negros y luz plana.
+    depth_strength: float = 0.65
+    depth_end: float = 0.8
+    lines_strength: float = 0.25
+    lines_end: float = 0.45
+    denoise: float = 0.88  # < 1 parte del albedo: conserva colores y materiales del modelo
+    refine: float = 0.0  # > 0: segunda pasada img2img que añade realismo (p. ej. 0.3)
+    refine_depth: float = 0.35
     unet: str = "z_image_turbo_bf16.safetensors"
     text_encoder: str = "qwen_3_4b.safetensors"
     vae: str = "ae.safetensors"
@@ -71,6 +76,16 @@ def zimage_control(s: ZImageSettings, depth_image: str, lines_image: str | None,
     sample = g.add("KSampler", model=g.out(model), seed=s.seed, steps=s.steps, cfg=s.cfg,
                    sampler_name=s.sampler, scheduler=s.scheduler, positive=g.out(pos), negative=g.out(neg),
                    latent_image=g.out(latent), denoise=s.denoise if init_image else 1.0)
+
+    if s.refine > 0:
+        # Refinado: rehace solo el detalle fino (texturas, reflejos, sombras suaves) con un
+        # control de profundidad ligero para que la geometría no se mueva.
+        rmodel = g.add("ModelSamplingAuraFlow", model=g.out(unet), shift=s.shift)
+        rmodel = g.add("ZImageFunControlnet", model=g.out(rmodel), model_patch=g.out(patch), vae=g.out(vae),
+                       strength=s.refine_depth, image=g.out(depth), start_percent=0.0, end_percent=0.6)
+        sample = g.add("KSampler", model=g.out(rmodel), seed=s.seed + 1, steps=s.steps, cfg=s.cfg,
+                       sampler_name=s.sampler, scheduler=s.scheduler, positive=g.out(pos), negative=g.out(neg),
+                       latent_image=g.out(sample), denoise=s.refine)
     image = g.add("VAEDecode", samples=g.out(sample), vae=g.out(vae))
     g.add("SaveImage", images=g.out(image), filename_prefix=prefix)
     return g.to_json()

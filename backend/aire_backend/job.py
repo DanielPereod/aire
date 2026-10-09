@@ -26,10 +26,15 @@ from .render import prepare_passes, run_renders, sweep_grid
 from .workflows import ZImageSettings
 
 QUALITY = {
-    "rapida": {"width": 1024},
-    "alta": {"width": 1536},
-    "comparar": {"width": 1024, "sweep": True},
+    "rapida": {"width": 1024, "refine": 0.0},
+    "alta": {"width": 1536, "refine": 0.3},
+    "comparar": {"width": 1024, "refine": 0.3, "sweep": True},
 }
+
+# Cuánto se parte de los colores del modelo (albedo): «Como en el modelo» los respeta
+# mucho; un estilo (nórdico, japandi…) necesita más libertad para cambiar el ambiente.
+DENOISE = {"modelo": 0.82}
+DENOISE_STYLE = 0.93
 
 STEPS = ["Preparando la escena", "Arrancando el motor", "Creando la imagen", "Terminando"]
 
@@ -52,7 +57,8 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
 
     base = ZImageSettings(width=passes.width, height=passes.height, prompt=full_prompt,
                           seed=seed if seed is not None else random.randint(0, 2**31 - 1),
-                          weight_dtype=cfg.get("weight_dtype", "fp8_e4m3fn"))
+                          weight_dtype=cfg.get("weight_dtype", "fp8_e4m3fn"),
+                          denoise=DENOISE.get(style, DENOISE_STYLE), refine=q["refine"])
     if q.get("sweep"):
         runs = sweep_grid(base)
     else:

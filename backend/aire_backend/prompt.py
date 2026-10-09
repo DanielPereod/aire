@@ -8,9 +8,10 @@ import numpy as np
 
 from .scene import Scene
 
-QUALITY = ("photorealistic interior design photograph, architectural photography, "
-           "realistic materials and textures, soft global illumination, natural shadows, "
-           "high detail, sharp focus, 24mm lens")
+QUALITY = ("real photograph of an interior taken with a full-frame camera, professional interior design "
+           "photography for a magazine, natural colors, realistic materials with fine texture and subtle "
+           "reflections, soft natural light with gentle shadows and global illumination, clean surfaces "
+           "without outlines, high detail, sharp focus, 24mm lens")
 
 _GENERIC = re.compile(r"^(material|color|colour|<.*>|\[.*\]|default|untitled|grupo|group|componente|component)"
                       r"[\s_#-]*\d*$", re.IGNORECASE)

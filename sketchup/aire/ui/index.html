@@ -297,6 +297,7 @@ function renderGallery(items) {
     const when = it.created ? new Date(it.created * 1000).toLocaleString("es-ES",
       { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
     info.textContent = [NAMES[it.style], NAMES[it.light], when].filter(Boolean).join(" · ");
+    if (it.quality === "comparar" && it.label) info.textContent += " · " + it.label;
     const actions = document.createElement("div");
     actions.className = "row";
     const view = document.createElement("button");
