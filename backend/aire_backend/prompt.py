@@ -21,6 +21,33 @@ def _meaningful(name: str | None) -> bool:
     return bool(name) and not _GENERIC.match(name.strip()) and not name.strip().isdigit()
 
 
+def color_name(rgb) -> str | None:
+    """Nombre aproximado en inglés del color de un material, para que la IA no lo cambie
+    (pruebas 0.7: un suelo beige salía gris)."""
+    if not rgb or len(rgb) < 3:
+        return None
+    import colorsys
+    r, g, b = (float(c) / 255.0 for c in rgb[:3])
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    tone = "dark " if l < 0.3 else "light " if l > 0.72 else ""
+    if s < 0.12 or (l > 0.9 and s < 0.3):
+        if l > 0.9:
+            return "white"
+        if l < 0.12:
+            return "black"
+        return f"{tone}grey"
+    deg = h * 360
+    if (deg < 50 or deg >= 330) and l > 0.55 and s < 0.5:
+        return "beige" if deg >= 20 else "light pink"
+    if 15 <= deg < 45 and l <= 0.55:
+        return f"{tone}brown"
+    names = [(15, "red"), (45, "orange"), (65, "yellow"), (160, "green"), (200, "teal"),
+             (255, "blue"), (290, "purple"), (330, "pink"), (360, "red")]
+    hue = next(n for limit, n in names if deg < limit)
+    muted = "muted " if s < 0.35 else ""
+    return f"{tone}{muted}{hue}"
+
+
 def scene_items(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: list[dict],
                 min_coverage: float = 0.003, limit: int = 14) -> list[str]:
     """'Objeto (material dominante)' para los objetos con nombre que más se ven."""
@@ -38,8 +65,10 @@ def scene_items(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: li
             continue
         mask = np.isin(ids, scene.descendants(obj["id"]))
         mats, counts = np.unique(material[mask & (material >= 0)], return_counts=True)
-        mat_name = scene.materials[int(mats[counts.argmax()])]["name"] if len(mats) else None
-        items.append(f"{name} ({mat_name})" if _meaningful(mat_name) else name)
+        mat = scene.materials[int(mats[counts.argmax()])] if len(mats) else {}
+        mat_name = mat.get("name")
+        desc = [c for c in (color_name(mat.get("color")), mat_name if _meaningful(mat_name) else None) if c]
+        items.append(f"{name} ({', '.join(desc)})" if desc else name)
         seen.add(name)
         if len(items) >= limit:
             break
@@ -94,10 +123,11 @@ EDIT_KEEP = ("Turn this 3D render into a real photograph of the same interior. K
              "remove, move or replace anything.")
 # Lo pequeño es lo primero que se pierde (pruebas 0.6: sillas caladas convertidas en punto
 # tejido, grifo y fregadero dorados en blanco, botes desaparecidos): se pide expresamente.
-EDIT_DETAIL = ("Preserve every small detail exactly as in the image: open or woven patterns keep their gaps "
-               "and shape, thin legs and frames stay thin, and handles, taps, sinks, jars, bottles and small "
-               "decorative objects keep their shape, color, metal finish and number. Each surface keeps its "
-               "own finish (for example a smooth floor stays smooth).")
+EDIT_DETAIL = ("Preserve every small detail exactly as in the image: patterns with gaps keep their gaps, thin "
+               "legs and frames stay thin, and handles, taps, sinks, jars, bottles, appliances and small "
+               "objects keep their shape, color, finish and number. Every surface keeps its own material and "
+               "its exact color and tone: fabric stays the same fabric, wood stays wood, stone stays stone, and "
+               "a light floor keeps its color instead of turning grey.")
 EDIT_LOOK = ("Make it look like a photograph by a professional interior photographer with a full-frame camera: "
              "physically correct light with soft shadows, contact shadows and ambient occlusion in corners, "
              "light falling off naturally across the room, true-to-life reflections on glossy and metal "

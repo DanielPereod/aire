@@ -250,3 +250,11 @@ def test_real_comfy_accepts_klein_workflow(tmp_path):
                                      {"Content-Type": "application/json"})
         with urllib.request.urlopen(req) as r:
             assert json.loads(r.read())["node_errors"] == {}
+
+
+def test_color_names_keep_floor_tone():
+    from aire_backend.prompt import color_name
+    assert color_name((222, 205, 180)) == "beige"
+    assert color_name((150, 150, 150)) == "grey"
+    assert color_name((70, 100, 140)) == "muted blue"
+    assert color_name(None) is None
