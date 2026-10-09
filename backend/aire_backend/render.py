@@ -29,7 +29,8 @@ from .fidelity import edge_map, load_lines, score
 from .passes import Passes, supersampled_shaded
 from .prompt import build_prompt
 from .scene import load_scene
-from .workflows import KleinSettings, QwenSettings, ZImageSettings, flux2_klein_edit, qwen21_edit, zimage_control
+from .workflows import (KleinSettings, QwenSettings, ZImageSettings, flux2_klein_edit, qwen21_edit, qwen_size,
+                        zimage_control)
 
 
 def round16(x: float) -> int:
@@ -114,13 +115,21 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
     # encuadre ya no coincide con las líneas calculadas con la cámara de SketchUp
     ref_lines = edge_map(Image.open(fitted)) if base is not None else load_lines(pdir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    qwen_init = None
+    if any(isinstance(s, QwenSettings) for s in runs):
+        # Qwen trabaja a ~1 Mpx y a un tamaño múltiplo de 32 (no reencuadra); luego se amplía
+        src = pdir / "base_qwen.png"
+        Image.open(fitted if base is not None else pdir / "shaded.png").convert("RGB").resize(
+            qwen_size(passes.width, passes.height), Image.Resampling.LANCZOS).save(src)
+        qwen_init = client.upload_image(src)
+        client.free()  # Qwen ocupa ~16 GB: que no conviva con otro motor en la RAM
     results = []
     for i, s in enumerate(runs):
         if on_each:
             on_each(i, len(runs))
         prefix = f"aire/{out_dir.name}_{i:02d}"
         if isinstance(s, QwenSettings):
-            wf = qwen21_edit(s, init, prefix=prefix)
+            wf = qwen21_edit(s, qwen_init, prefix=prefix)
         elif isinstance(s, KleinSettings):
             wf = flux2_klein_edit(s, init, prefix=prefix)
         else:
@@ -129,6 +138,8 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
         images = client.run(wf, check=(i == 0))
         secs = time.perf_counter() - t0
         img = Image.open(BytesIO(images[0]))
+        if img.size != (passes.width, passes.height):
+            img = img.convert("RGB").resize((passes.width, passes.height), Image.Resampling.LANCZOS)
         if base is not None and getattr(s, "color_lock", 0) > 0:
             img = lock_colors(img, color_ref, s.color_lock)
         if getattr(s, "photo", 0) > 0:

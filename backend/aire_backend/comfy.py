@@ -84,6 +84,10 @@ def validate(graph: dict, object_info: dict) -> list[str]:
     return problems
 
 
+CRASH_HELP = ("El motor de IA se ha cerrado de golpe. Suele ser falta de memoria RAM: cierra otros programas "
+              "pesados (otro ComfyUI, el navegador, juegos) y vuelve a intentarlo.")
+
+
 class ComfyClient:
     def __init__(self, server: str = "http://127.0.0.1:8188", timeout: float = 30.0):
         self.server = server.rstrip("/")
@@ -101,6 +105,8 @@ class ComfyClient:
             raise ComfyError(f"ComfyUI {e.code} en {path}: {body[:2000]}") from e
         except urllib.error.URLError as e:
             raise ComfyError(f"No se puede conectar con ComfyUI en {self.server}: {e.reason}") from e
+        except ConnectionError as e:  # se ha cerrado a mitad de respuesta
+            raise ComfyError(f"No se puede conectar con ComfyUI en {self.server}: {e}") from e
 
     def _json(self, path: str, payload: dict | None = None):
         data = json.dumps(payload).encode() if payload is not None else None
@@ -113,6 +119,14 @@ class ComfyClient:
 
     def system_stats(self) -> dict:
         return self._json("/system_stats")
+
+    def free(self) -> None:
+        """Descarga los modelos de la memoria (RAM y VRAM) antes de cargar otro motor grande."""
+        try:
+            self._request("/free", json.dumps({"unload_models": True, "free_memory": True}).encode(),
+                          {"Content-Type": "application/json"})
+        except ComfyError:
+            pass
 
     def upload_image(self, path: Path, subfolder: str = "aire") -> str:
         """Sube una imagen a input/<subfolder>/ y devuelve el valor para LoadImage."""

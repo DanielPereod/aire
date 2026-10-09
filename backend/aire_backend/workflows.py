@@ -240,6 +240,16 @@ class QwenSettings:
         return asdict(self)
 
 
+QWEN_PIXELS = 1024 * 1024  # presupuesto oficial de Qwen Image 2.1: rápido y cabe en 8 GB
+
+
+def qwen_size(w: int, h: int, pixels: int = QWEN_PIXELS) -> tuple[int, int]:
+    """Tamaño de trabajo de Qwen: ~pixels, misma proporción y múltiplos de 32. Con la imagen ya a
+    este tamaño el nodo no la recorta ni la reescala, así que no cambia el encuadre."""
+    k = (pixels / (w * h)) ** 0.5
+    return max(32, round(w * k / 32) * 32), max(32, round(h * k / 32) * 32)
+
+
 def qwen21_edit(s: QwenSettings, image: str, extra_refs: tuple[str, ...] = (), prefix: str = "aire/render") -> dict:
     """image (y las referencias) ya subidas a ComfyUI; image debe estar al tamaño final."""
     g = Graph()

@@ -22,12 +22,12 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 from . import comfyctl
-from .comfy import ComfyError
+from .comfy import CRASH_HELP, ComfyError
 from .job import ensure_models
 from .photo import photo_finish
 from .progress import Progress, UserError
 from .render import round16, save_views
-from .workflows import KleinSettings, QwenSettings, flux2_klein_edit, qwen21_edit
+from .workflows import KleinSettings, QwenSettings, flux2_klein_edit, qwen21_edit, qwen_size
 
 STEPS = ["Preparando la imagen", "Descargando el modelo", "Arrancando el motor", "Aplicando los cambios",
          "Terminando"]
@@ -113,6 +113,8 @@ def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path 
         region = src
         w, h = work_size(src.width, src.height, min(MAX_WIDTH, max(src.width, src.height)))
         upscale = 1.5 if max(w, h) > 1400 else 1.0
+    if engine == "qwen21":
+        w, h = qwen_size(region.width, region.height)
     base_path = work / "base.png"
     region.resize((w, h), Image.Resampling.LANCZOS).save(base_path)
     ref_paths = [fit_reference(r, work / f"ref_{i}.png") for i, r in enumerate(refs)]
@@ -128,6 +130,7 @@ def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path 
     prefix = f"aire/{job_dir.name}"
     if engine == "qwen21":
         progress.step(3, "Unos 1-2 minutos")
+        client.free()
         s = QwenSettings(width=w, height=h, prompt=text, seed=seed)
         wf = qwen21_edit(s, base, uploaded, prefix=prefix)
     else:
@@ -141,6 +144,8 @@ def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path 
         if "out of memory" in str(e).lower():
             raise UserError("La tarjeta gráfica se ha quedado sin memoria. Cierra otros programas y prueba "
                             "con una zona más pequeña o menos referencias.") from e
+        if "No se puede conectar" in str(e):
+            raise UserError(CRASH_HELP) from e
         raise
     secs = time.perf_counter() - t0
     from io import BytesIO

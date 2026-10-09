@@ -161,6 +161,9 @@ class FakeComfy(BaseHTTPRequestHandler):
         elif self.path == "/prompt":
             FakeComfy.queued.append(json.loads(body)["prompt"])
             self._send({"prompt_id": "p1", "number": 0, "node_errors": {}})
+        elif self.path == "/free":
+            FakeComfy.freed += 1
+            self._send({})
 
 
 @pytest.fixture
@@ -169,6 +172,7 @@ def fake_server():
     Image.new("RGB", (8, 8), (10, 20, 30)).save(buf, "PNG")
     FakeComfy.png = buf.getvalue()
     FakeComfy.queued = []
+    FakeComfy.freed = 0
     srv = HTTPServer(("127.0.0.1", 0), FakeComfy)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}"

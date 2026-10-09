@@ -18,20 +18,25 @@ import traceback
 from dataclasses import replace
 from pathlib import Path
 
+from PIL import Image
+
 from . import comfyctl, cycles_engine
-from .comfy import ComfyError
+from .comfy import CRASH_HELP, ComfyError
 from .installer import Installer
 from .progress import Progress, UserError
 from .models import adopt_existing, download, missing_files
 from .prompt import build_edit_prompt
-from .render import prepare_passes, run_renders
-from .workflows import KleinSettings, QwenSettings
+from .photo import photo_finish
+from .render import prepare_passes, run_renders, save_views
+from .workflows import KleinSettings, QwenSettings, qwen_size
 
 # width = tamaño final; upscale > 1 → 1.ª pasada a width/upscale y 2.ª pasada de detalle
 QUALITY = {
 # cycles: la imagen base es un render con luz real (Cycles) en vez de la sencilla
     "rapida": {"width": 1024, "steps": 4, "upscale": 1.0},
     "alta": {"width": 1920, "steps": 4, "upscale": 1.5, "cycles": True, "photo": 1.0, "engine": "qwen21"},
+    # sin IA: solo el render de Cycles con el acabado de cámara (fiel al modelo al 100 %)
+    "real": {"width": 1920, "steps": 0, "upscale": 1.0, "cycles": True, "photo": 1.0, "ai": False},
     "comparar": {"width": 1920, "steps": 4, "upscale": 1.5, "sweep": True, "cycles": True, "photo": 1.0},
 }
 
@@ -115,6 +120,33 @@ def klein_grid(base: KleinSettings, with_light: bool = False) -> list[KleinSetti
     return runs
 
 
+def render_without_ai(home: Path, cfg: dict, export: Path, passes, light: str, quality: str, prompt: str,
+                      style: str, q: dict, progress: Progress) -> dict:
+    """Solo luz real (Cycles) y acabado de cámara: sin modelo de IA ni ComfyUI."""
+    progress.step(1, "No hace falta")
+    base = light_pass(home, cfg, export, passes.width, light, progress)
+    if base is None:
+        raise UserError("No se ha podido calcular la luz real. Pulsa «Ver el registro técnico» para ver por qué.")
+    progress.step(3, "No hace falta")
+    progress.step(4, "Dando el acabado de cámara…")
+    t0 = time.perf_counter()
+    img = Image.open(base).convert("RGB")
+    if q.get("photo", 0) > 0:
+        img = photo_finish(img, q["photo"])
+    out_dir = export.parent / "renders"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "render_00.png"
+    img.save(path)
+    item = {"file": path.name, "path": str(path), "seconds": round(time.perf_counter() - t0, 1),
+            "label": f"Sin IA · luz real (Cycles) · {img.width}×{img.height}", "fidelity": 1.0, "settings": {}}
+    item.update(save_views(img, out_dir, "render_00"))
+    progress.step(5)
+    result = {"folder": str(out_dir), "prompt": "", "style": style, "light": light, "quality": quality,
+              "user_prompt": prompt, "engine": "cycles", "created": time.time(), "images": [item]}
+    (out_dir / "result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    return result
+
+
 def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quality: str,
             seed: int | None, progress: Progress, variants: int = 1, base_image: Path | None = None) -> dict:
     cfg = json.loads((home / "config.json").read_text(encoding="utf-8"))
@@ -124,6 +156,8 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
 
     progress.step(0, "Leyendo el modelo 3D (unos 30 s)…")
     passes, pdir = prepare_passes(str(export), q["width"])
+    if not q.get("ai", True):
+        return render_without_ai(home, cfg, export, passes, light, quality, prompt, style, q, progress)
     a = passes.arrays
     visible = passes.visible_objects()
 
@@ -145,7 +179,8 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
                          upscale=q["upscale"], color_lock=1.0 if base_image is not None else 0.0, photo=q.get("photo", 0.0),
                          seed=seed if seed is not None else random.randint(0, 2**31 - 1))
     if engine == "qwen21":
-        base = QwenSettings(width=base.width, height=base.height, prompt=full_prompt, seed=base.seed,
+        qw, qh = qwen_size(base.width, base.height)
+        base = QwenSettings(width=qw, height=qh, prompt=full_prompt, seed=base.seed,
                             color_lock=base.color_lock, photo=base.photo)
     if q.get("sweep"):
         runs = klein_grid(base, with_light=base_image is not None)
@@ -166,6 +201,8 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
         if "out of memory" in text.lower() or "OutOfMemory" in text:
             raise UserError("La tarjeta gráfica se ha quedado sin memoria. Cierra otros programas "
                             "(juegos, navegadores con vídeo) y prueba con calidad «Rápida».") from e
+        if "No se puede conectar" in text:
+            raise UserError(CRASH_HELP) from e
         raise
 
     progress.step(5)

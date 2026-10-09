@@ -191,3 +191,9 @@ unos 16 GB de modelos, que se descargan la primera vez o se enlazan si ya están
 del ordenador (StabilityMatrix, ComfyUI Desktop…, `models.adopt_existing`). 25 pasos, cfg 1.
 La imagen 1 es el render de Cycles (o la imagen a editar) y marca el tamaño; las referencias van
 como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.
+
+### 0.10.2: Qwen a 1 Mpx y modo «Sin IA»
+
+- Qwen Image 2.1 trabaja a ~1 Mpx (presupuesto oficial) con la imagen ya a un tamaño múltiplo de 32 y `resolution = 0`, así el nodo no recorta ni reescala y el encuadre coincide con la base de Cycles. El resultado se amplía con Lanczos al tamaño final antes de fijar colores y del acabado. Antes de cargar Qwen se llama a `/free` para que no conviva en la RAM con otro motor. A 1920 px tardaba unos 190 s por pasada y dejaba el PC con 1 GB de RAM libre.
+- Si ComfyUI se cierra a mitad del trabajo, el usuario ve un aviso de falta de memoria en vez de un error de conexión.
+- Calidad «Sin IA» (`real`): solo el render de Cycles con el acabado de cámara; no arranca ComfyUI ni descarga modelos.

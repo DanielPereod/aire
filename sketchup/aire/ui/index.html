@@ -81,6 +81,7 @@
   .primary:hover { background: var(--accent-hover); }
   .primary:active { transform: translateY(1px); }
   .primary:disabled { opacity: .55; cursor: default; }
+  [data-ai].off { opacity: .4; pointer-events: none; }
   .seg { display: flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
   .seg button { flex: 1; border: 0; background: none; border-radius: 7px; padding: 7px 8px; color: var(--ink-2);
                 font-weight: 550; display: flex; align-items: center; justify-content: center; gap: 6px; }
@@ -278,24 +279,25 @@
           <div class="label">Luz</div>
           <div class="seg" id="lights"></div>
         </div>
-        <div class="field">
+        <div class="field" data-ai>
           <div class="label">Estilo</div>
           <div class="styles" id="styles"></div>
         </div>
-        <div class="field">
+        <div class="field" data-ai>
           <div class="label">Indicaciones <span class="muted">opcional</span></div>
           <textarea id="prompt" placeholder="Por ejemplo: añade plantas, una alfombra de yute y cuadros en la pared"></textarea>
         </div>
         <div class="field row" style="gap:12px;align-items:flex-start">
-          <div style="flex:2;min-width:200px">
+          <div style="flex:1 1 100%">
             <div class="label">Calidad</div>
             <div class="seg" id="qualities"></div>
           </div>
-          <div style="flex:1;min-width:120px">
+          <div style="flex:1;min-width:120px" data-ai>
             <div class="label">Imágenes</div>
             <div class="seg" id="variants"></div>
           </div>
         </div>
+        <div class="muted hidden" id="no-ai-note" style="font-size:12.5px">Sin IA: la imagen es el render con luz real de tu modelo tal cual, sin estilo ni cambios. Fiel al 100 %.</div>
       </div>
       <div class="hint"><svg class="i"><use href="#i-info"/></svg>Encuadra en SketchUp la vista que quieres. Para un aspecto de foto real, pon la cámara a la altura de los ojos.</div>
       <button class="primary" id="btn-render"><svg class="i"><use href="#i-spark"/></svg><span>Crear imagen de esta vista</span></button>
@@ -375,7 +377,7 @@ const STYLES = [["modelo", "Como el modelo", ["#d9d2c5", "#8a7a66", "#5f6f6a"]],
                 ["lujo", "Lujo", ["#1f2321", "#c9a35b", "#e9e3d8"]],
                 ["minimalista", "Minimalista", ["#ffffff", "#e6e4e0", "#2b2b2b"]]];
 const LIGHTS = [["dia", "De día", "i-sun"], ["tarde", "Atardecer", "i-sunset"], ["noche", "De noche", "i-moon"]];
-const QUALITIES = [["rapida", "Rápida", "~30 s"], ["alta", "Alta calidad", "~3 min"]];
+const QUALITIES = [["rapida", "Rápida", "~30 s"], ["alta", "Alta calidad", "~3 min"], ["real", "Sin IA", "~2 min"]];
 const VARIANTS = [["1", "1"], ["2", "2"], ["4", "4"]];
 const NAMES = Object.fromEntries([...STYLES, ...LIGHTS].map(([k, v]) => [k, v]));
 const MAX_REFS = 3;
@@ -401,7 +403,7 @@ function toast(msg) {
 }
 
 // ---------- controles de «Crear» ----------
-function seg(id, options, key, fallback) {
+function seg(id, options, key, fallback, onchange) {
   const box = $(id);
   if (!(key in prefs)) prefs[key] = fallback;
   box.innerHTML = "";
@@ -411,7 +413,7 @@ function seg(id, options, key, fallback) {
     const note = extra && !extra.startsWith("i-") ? ` <small>${extra}</small>` : "";
     b.innerHTML = `${ic}<span>${text}</span>${note}`;
     b.setAttribute("aria-pressed", String(prefs[key] === value));
-    b.onclick = () => { prefs[key] = value; save(); seg(id, options, key, fallback); };
+    b.onclick = () => { prefs[key] = value; save(); seg(id, options, key, fallback, onchange); if (onchange) onchange(); };
     box.appendChild(b);
   }
 }
@@ -801,7 +803,13 @@ $("btn-render").onclick = () => {
 
 seg("lights", LIGHTS, "light", "dia");
 styles();
-seg("qualities", QUALITIES, "quality", "alta");
+function aiMode() {  // «Sin IA» no usa estilo, indicaciones ni variantes
+  const noAi = prefs.quality === "real";
+  document.querySelectorAll("[data-ai]").forEach(el => el.classList.toggle("off", noAi));
+  $("no-ai-note").classList.toggle("hidden", !noAi);
+}
+seg("qualities", QUALITIES, "quality", "alta", aiMode);
+aiMode();
 seg("variants", VARIANTS, "variants", "1");
 renderRefs();
 tab(prefs.tab === "editar" ? "crear" : (prefs.tab || "crear"));

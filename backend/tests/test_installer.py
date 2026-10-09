@@ -423,9 +423,22 @@ def test_high_quality_job_uses_qwen(tmp_path, monkeypatch, fake_server):  # noqa
     export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
     result = jobmod.run_job(home, export, "", "modelo", "dia", "alta", 1, Progress(None, jobmod.STEPS))
     s = result["images"][0]["settings"]
-    assert s["width"] == 480 and s["steps"] == 25 and result["engine"] == "qwen21"
-    types = [n["class_type"] for n in FakeComfy.queued[-1].values()]
+    # Qwen trabaja a ~1 Mpx en múltiplos de 32 (no reencuadra) y se amplía al tamaño final
+    assert s["width"] % 32 == 0 and s["height"] % 32 == 0 and s["steps"] == 25 and result["engine"] == "qwen21"
+    assert abs(s["width"] / s["height"] - 480 / 300) < 0.05
+    assert Image.open(result["images"][0]["path"]).width == 480
+    graph = FakeComfy.queued[-1]
+    types = [n["class_type"] for n in graph.values()]
     assert "TextEncodeQwenImage21" in types and "QwenImage21Cache" in types
+    enc = next(n for n in graph.values() if n["class_type"] == "TextEncodeQwenImage21")
+    assert enc["inputs"]["resolution"] == 0 and "images.image_1" in enc["inputs"]
+    assert FakeComfy.freed == 1  # libera la memoria antes de cargar Qwen
+
+
+def test_qwen_size_keeps_aspect_and_budget():
+    from aire_backend.workflows import qwen_size
+    w, h = qwen_size(1920, 1080)
+    assert (w % 32, h % 32) == (0, 0) and abs(w / h - 16 / 9) < 0.03 and 0.9e6 < w * h < 1.15e6
 
 
 def test_klein_job_uses_two_passes(tmp_path, monkeypatch, fake_server):  # noqa: F811
@@ -540,3 +553,20 @@ def test_edit_without_mask_or_text_asks_for_something(tmp_path, monkeypatch, fak
     res = editmod.run_edit(home, image, "más luz", [], None, tmp_path / "jobs" / "c", 1,
                            Progress(None, editmod.STEPS))
     assert Image.open(res["images"][0]["path"]).size == (640, 400) and not res["masked"]
+
+
+def test_no_ai_quality_is_the_cycles_render_with_camera_finish(tmp_path, monkeypatch):
+    home = tmp_path / "AIRE"
+    home.mkdir()
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "comfy_dir": str(tmp_path / "nada")}))
+    export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
+    cyc = tmp_path / "cycles.png"
+    Image.new("RGB", (480, 300), (200, 180, 150)).save(cyc)
+    monkeypatch.setitem(jobmod.QUALITY, "real", {**jobmod.QUALITY["real"], "width": 480})
+    monkeypatch.setattr(jobmod, "light_pass", lambda *a, **kw: cyc)
+    monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda *a, **kw: pytest.fail("sin IA no arranca ComfyUI"))
+    result = jobmod.run_job(home, export, "", "modelo", "dia", "real", 1, Progress(None, jobmod.STEPS))
+    assert result["engine"] == "cycles" and len(result["images"]) == 1
+    img = Image.open(result["images"][0]["path"])
+    assert img.size == (480, 300) and img.getpixel((0, 0)) != (200, 180, 150)  # viñeta del acabado
+    assert (export.parent / "renders" / "result.json").exists()
