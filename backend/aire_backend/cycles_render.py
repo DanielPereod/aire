@@ -29,6 +29,7 @@ import bpy  # noqa: E402
 from mathutils import Matrix  # noqa: E402
 import numpy as np  # noqa: E402
 
+from aire_backend import matlib  # noqa: E402
 from aire_backend.camera import Camera, level_view  # noqa: E402
 from aire_backend.room import ceiling_height  # noqa: E402
 from aire_backend.scene import Scene, load_scene  # noqa: E402
@@ -90,7 +91,122 @@ def material_params(scene: Scene, mid: int, object_names: str) -> dict:
     if alpha is not None and alpha < 0.95 and p.get("kind") is None:
         p["kind"] = "glass" if alpha < 0.6 else "alpha"
         p["alpha"] = alpha
+    names = (info.get("name"), info.get("internal_name"), tex, object_names)
+    if p.get("kind") is None and not any(n and matlib.SKIP.search(n) for n in names):
+        k = matlib.kind_for(*names)
+        if k is None and mid in FLOOR_MATERIALS and not tex:
+            k = matlib.BY_KEY[floor_kind(info.get("color", [200, 200, 200]))]
+            p["roughness"] = 0.35 if k.key == "floor_stone" else 0.45  # suelo con algo de reflejo
+        if k is None and not tex and p.get("metallic", 0) < 0.5:
+            k = matlib.BY_KEY[matlib.FALLBACK]
+        if k is not None and k.key in LIBRARY:
+            p["lib"] = k.key
     return p
+
+
+SEE_THROUGH: list = []  # triángulos que dejan pasar el sol (vidrio, visillos)
+FLOOR_MATERIALS: set = set()  # materiales del suelo de la estancia (detectados por geometría)
+LIBRARY: dict = {}  # tipo → info de la biblioteca descargada (matlib.ensure); vacío = sin biblioteca
+LIBRARY_DIR: Path | None = None
+BEVEL = 0.004  # radio de los cantos redondeados (m)
+
+
+def floor_kind(rgb) -> str:
+    """Suelo liso sin nombre reconocible: madera si el color es de madera, piedra si no."""
+    r, g, b = (float(c) / 255.0 for c in rgb[:3])
+    mx, mn = max(r, g, b), min(r, g, b)
+    sat = (mx - mn) / mx if mx > 0 else 0.0
+    return "wood_floor" if (r > g > b and sat > 0.25 and mx < 0.85) else "floor_stone"
+
+
+def detect_floor(scene: Scene, tris: np.ndarray) -> set:
+    """Materiales que cubren el suelo: caras hacia arriba en el nivel más bajo con superficie."""
+    p = scene.positions[tris].astype(np.float64)
+    n = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+    area = np.linalg.norm(n, axis=1) / 2
+    up = (n[:, 2] / np.maximum(2 * area, 1e-12)) > 0.95
+    if not up.any():
+        return set()
+    z = p[:, :, 2].mean(axis=1)
+    big = up & (area > 0)
+    zs = z[big]
+    w = area[big]
+    order = np.argsort(zs)
+    cum = np.cumsum(w[order])
+    if cum[-1] <= 0:
+        return set()
+    level = zs[order][np.searchsorted(cum, cum[-1] * 0.15)]  # nivel del suelo (robusto a alfombras)
+    near = big & (np.abs(z - level) < 0.05)
+    if area[near].sum() < 2.0:  # menos de 2 m² no es un suelo de estancia
+        return set()
+    mats = scene.tri_material_front[tris[near]]
+    totals = {}
+    for m, a in zip(mats.tolist(), area[near].tolist()):
+        totals[m] = totals.get(m, 0.0) + a
+    total = sum(totals.values())
+    return {m for m, a in totals.items() if a > total * 0.2}
+
+
+def _lib_image(nodes, links, path: Path, coords, color: bool):
+    node = nodes.new("ShaderNodeTexImage")
+    node.image = bpy.data.images.load(str(path), check_existing=True)
+    if not color:
+        node.image.colorspace_settings.name = "Non-Color"
+    node.projection = "BOX"  # sin UV: proyección por caja en coordenadas reales (metros)
+    node.projection_blend = 0.25
+    node.interpolation = "Linear"
+    links.new(coords, node.inputs["Vector"])
+    return node
+
+
+def add_detail(nodes, links, bsdf, params: dict, has_texture: bool, base_color, normal_in):
+    """Relieve, brillo irregular y (en colores lisos) veta del material real de la biblioteca.
+    Devuelve el socket de normal resultante (o normal_in si no hay biblioteca para este tipo)."""
+    key = params.get("lib")
+    info = LIBRARY.get(key) if key else None
+    if not info or LIBRARY_DIR is None:
+        return normal_in
+    kind = matlib.BY_KEY[key]
+    folder = LIBRARY_DIR / info["id"]
+    tc = nodes.new("ShaderNodeTexCoord")
+    mapping = nodes.new("ShaderNodeMapping")
+    s = 1.0 / max(float(info.get("size") or kind.size), 0.05)
+    mapping.inputs["Scale"].default_value = (s, s, s)
+    links.new(tc.outputs["Object"], mapping.inputs["Vector"])
+    coords = mapping.outputs["Vector"]
+    if info.get("rough"):
+        # Rugosidad del modelo × variación del escaneo (normalizada a su media)
+        img = _lib_image(nodes, links, folder / info["rough"], coords, False)
+        mul = nodes.new("ShaderNodeMath")
+        mul.operation = "MULTIPLY"
+        mul.use_clamp = True
+        mul.inputs[1].default_value = params.get("roughness", 0.5) / max(info.get("mean_rough", 0.5), 0.05)
+        links.new(img.outputs["Color"], mul.inputs[0])
+        links.new(mul.outputs[0], bsdf.inputs["Roughness"])
+    if info.get("normal") and not has_texture and kind.normal > 0:
+        img = _lib_image(nodes, links, folder / info["normal"], coords, False)
+        nm = nodes.new("ShaderNodeNormalMap")
+        nm.inputs["Strength"].default_value = kind.normal
+        links.new(img.outputs["Color"], nm.inputs["Color"])
+        normal_in = nm.outputs["Normal"]
+    if info.get("color") and not has_texture and kind.tint > 0 and base_color is not None:
+        # Veta y poros del escaneo sobre el color del modelo: color × (escaneo / su media)
+        img = _lib_image(nodes, links, folder / info["color"], coords, True)
+        mean = info.get("mean_color", [0.5, 0.5, 0.5])
+        norm = nodes.new("ShaderNodeMix")
+        norm.data_type = "RGBA"
+        norm.blend_type = "DIVIDE"
+        norm.inputs["Factor"].default_value = 1.0
+        links.new(img.outputs["Color"], norm.inputs["A"])
+        norm.inputs["B"].default_value = [*(max(c, 0.02) ** 2.2 for c in mean), 1.0]  # media en lineal
+        tinted = nodes.new("ShaderNodeMix")
+        tinted.data_type = "RGBA"
+        tinted.blend_type = "MULTIPLY"
+        tinted.inputs["Factor"].default_value = kind.tint
+        tinted.inputs["A"].default_value = base_color
+        links.new(norm.outputs["Result"], tinted.inputs["B"])
+        links.new(tinted.outputs["Result"], bsdf.inputs["Base Color"])
+    return normal_in
 
 
 def _srgb_to_linear(c):
@@ -131,13 +247,29 @@ def build_material(scene: Scene, mid: int, params: dict, name: str):
         bsdf.inputs["Coat Roughness"].default_value = 0.03
     if params.get("sheen"):
         bsdf.inputs["Sheen Weight"].default_value = params["sheen"]
+    normal = None
+    if params.get("kind") is None:
+        base = None if color_socket is not None else bsdf.inputs["Base Color"].default_value[:]
+        normal = add_detail(nodes, links, bsdf, params, color_socket is not None, base, None)
+        if BEVEL > 0:
+            # Cantos redondeados en el sombreado: las aristas vivas son lo que más delata el 3D
+            bevel = nodes.new("ShaderNodeBevel")
+            bevel.samples = 6
+            bevel.inputs["Radius"].default_value = BEVEL
+            if normal is not None:
+                links.new(normal, bevel.inputs["Normal"])
+            normal = bevel.outputs["Normal"]
     if color_socket is not None and params.get("kind") is None:
         # Relieve a partir de la propia textura (suave si el material no dice otra cosa)
         bump = nodes.new("ShaderNodeBump")
         bump.inputs["Strength"].default_value = params.get("bump", 0.1)
         bump.inputs["Distance"].default_value = 0.002
         links.new(color_socket, bump.inputs["Height"])
-        links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+        if normal is not None:
+            links.new(normal, bump.inputs["Normal"])
+        normal = bump.outputs["Normal"]
+    if normal is not None:
+        links.new(normal, bsdf.inputs["Normal"])
 
     kind = params.get("kind")
     if kind == "glass":
@@ -267,6 +399,8 @@ def build_meshes(scene: Scene, visible_tris: np.ndarray) -> tuple[dict, list]:
     for k, (mf, mb, lamp) in enumerate(uniq):
         tris = visible_tris[inverse == k]
         mat, pf = material_for(int(mf), int(mb), tris, bool(lamp))
+        if pf.get("kind") in ("glass", "sheer", "alpha"):
+            SEE_THROUGH.extend(tris.tolist())
         if pf.get("kind") == "glass":
             for oid in np.unique(scene.tri_object[tris]):
                 glass_groups.setdefault(int(oid), []).extend(tris[scene.tri_object[tris] == oid].tolist())
@@ -288,7 +422,8 @@ def _as_group(mat):
             mapping[n.name] = group.nodes.new("NodeGroupOutput")
             continue
         m = group.nodes.new(n.bl_idname)
-        for attr in ("image", "interpolation", "operation"):
+        for attr in ("image", "interpolation", "operation", "projection", "projection_blend", "data_type",
+                     "blend_type", "use_clamp", "samples", "vector_type", "space"):
             if hasattr(n, attr):
                 setattr(m, attr, getattr(n, attr))
         for i, s in enumerate(n.inputs):
@@ -398,9 +533,84 @@ def sun_direction(scene: Scene) -> np.ndarray:
     return np.array([0.4, -0.6, 0.7]) / np.linalg.norm([0.4, -0.6, 0.7])  # tarde de primavera
 
 
-def setup_daylight(scene: Scene, light: str) -> None:
-    to_sun = sun_direction(scene)
-    if light == "tarde":
+def camera_hits(bvh, cam_obj, nx: int = 48, ny: int = 32) -> list:
+    """Puntos de la escena que ve la cámara (rejilla de rayos): [(punto, normal)]."""
+    from mathutils import Vector
+    data = cam_obj.data
+    bs = bpy.context.scene
+    aspect = bs.render.resolution_x / bs.render.resolution_y
+    t = math.tan(data.angle_y / 2)
+    m = cam_obj.matrix_world
+    eye = m.translation
+    out = []
+    for j in range(ny):
+        for i in range(nx):
+            sx, sy = (i + 0.5) / nx - 0.5, (j + 0.5) / ny - 0.5
+            d = m.to_3x3() @ Vector((sx * 2 * t * aspect, (sy + data.shift_y) * 2 * t, -1.0))
+            loc, nrm, _, _ = bvh.ray_cast(eye, d.normalized(), 200.0)
+            if loc is not None:
+                if nrm.dot(d) > 0:
+                    nrm = -nrm
+                out.append((loc, nrm))
+    return out
+
+
+def aim_sun(scene: Scene, tris: np.ndarray, cam_obj, elevation_deg: float, prefer: np.ndarray):
+    """Orienta el sol para que entre por las ventanas y dibuje franjas de luz en lo que ve la
+    cámara, como en una foto de interiorismo. Prueba direcciones cada 10° a la altura dada y se
+    queda con la que ilumina entre un 12 y un 35 % de la imagen; a igualdad, la más cercana al sol
+    de SketchUp. Devuelve (dirección hacia el sol, fracción iluminada) o None si no entra en ninguna."""
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+    see = set(SEE_THROUGH)
+    solid = np.array([t for t in tris.tolist() if t not in see], dtype=np.int64)
+    clear = np.array(sorted(see), dtype=np.int64)
+    if len(solid) == 0 or len(clear) == 0:
+        return None
+
+    def tree(ids):
+        p = scene.positions[ids].reshape(-1, 3).astype(np.float64)
+        return BVHTree.FromPolygons([tuple(v) for v in p.tolist()],
+                                    [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(ids))], epsilon=0.0)
+    bvh, windows = tree(solid), tree(clear)
+    pts = camera_hits(bvh, cam_obj)
+    if len(pts) < 50:
+        return None
+    el = math.radians(elevation_deg)
+    best = None
+    ph = np.array([prefer[0], prefer[1]])
+    ph = ph / (np.linalg.norm(ph) or 1.0)
+    for az in range(0, 360, 10):
+        a = math.radians(az)
+        d = np.array([math.cos(a) * math.cos(el), math.sin(a) * math.cos(el), math.sin(el)])
+        dv = Vector(d.tolist())
+        lit = 0
+        for loc, nrm in pts:
+            if nrm.dot(dv) <= 0.05:
+                continue
+            start = loc + nrm * 0.003
+            # Iluminado si el rayo hacia el sol sale por una ventana sin chocar antes con nada
+            # (no basta con no chocar: el techo que AIRE añade no está en la geometría del modelo)
+            win = windows.ray_cast(start, dv, 100.0)
+            if win[0] is None:
+                continue
+            hit = bvh.ray_cast(start, dv, win[3] + 1e-3)
+            if hit[0] is None:
+                lit += 1
+        frac = lit / len(pts)
+        closeness = float(np.dot(ph, d[:2] / (np.linalg.norm(d[:2]) or 1.0)))
+        score = (min(frac, 0.35) if frac >= 0.04 else -1.0, closeness)
+        if best is None or score > best[0]:
+            best = (score, d, frac)
+    if best is None or best[0][0] < 0:
+        return None
+    return best[1], best[2]
+
+
+def setup_daylight(scene: Scene, light: str, to_sun: np.ndarray | None = None) -> None:
+    aimed = to_sun is not None
+    to_sun = sun_direction(scene) if to_sun is None else to_sun
+    if light == "tarde" and not aimed:
         # Atardecer: sol bajo y cálido conservando su orientación horizontal
         h = to_sun.copy()
         h[2] = 0.0
@@ -426,7 +636,10 @@ def setup_daylight(scene: Scene, light: str) -> None:
     nt.links.new(sky.outputs["Color"], neutral.inputs["A"])
     nt.links.new(bw.outputs["Val"], neutral.inputs["B"])
     nt.links.new(neutral.outputs["Result"], bg.inputs["Color"])
-    if EXTERIOR:
+    hdri = (LIBRARY.get("_hdri") or {}).get("file")
+    if hdri and LIBRARY_DIR is not None and (LIBRARY_DIR / hdri).exists():
+        _hdri_view(nt, bg, LIBRARY_DIR / hdri, 0.6 if light == "tarde" else 1.0, math.atan2(to_sun[1], to_sun[0]))
+    elif EXTERIOR:
         _exterior_view(nt, bg, sky, 0.6 if light == "tarde" else 1.0)
     else:
         _camera_sees(nt, bg, (1.0, 0.98, 0.95), 40.0)
@@ -437,6 +650,8 @@ def setup_daylight(scene: Scene, light: str) -> None:
     # Proporción sol/cielo realista: con el cielo físico a fuerza 1, unos 4-5 W/m² dan la
     # relación de luz típica (se calibra con la exposición automática al final).
     sun.energy = 4.0 if to_sun[2] > 0.05 else 0.0
+    if aimed:
+        sun.color = (1.0, 0.88, 0.74)  # sol de media tarde, como en las fotos de interiorismo
     if light == "tarde":
         sun.color = (1.0, 0.72, 0.48)
         sun.energy = 3.0
@@ -510,6 +725,36 @@ def _exterior_view(nt, bg, sky, strength: float) -> None:
     ext = N.new("ShaderNodeBackground")
     ext.inputs["Strength"].default_value = 5.0 * strength  # sobreexpuesto, como en una foto
     nt.links.new(view2.outputs["Result"], ext.inputs["Color"])
+    out = N.get("World Output")
+    lp = N.new("ShaderNodeLightPath")
+    mix = N.new("ShaderNodeMixShader")
+    nt.links.new(lp.outputs["Is Camera Ray"], mix.inputs["Fac"])
+    nt.links.new(bg.outputs[0], mix.inputs[1])
+    nt.links.new(ext.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs["Surface"])
+
+
+def _hdri_view(nt, bg, path: Path, strength: float, sun_azimuth: float) -> None:
+    """Lo que se ve por las ventanas: una foto panorámica real de un jardín (HDRI), clara y
+    algo sobreexpuesta. Solo la ven los rayos de cámara; la luz sigue saliendo del cielo y el sol."""
+    img = bpy.data.images.load(str(path), check_existing=True)
+    px = np.empty(img.size[0] * img.size[1] * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    rgb = px.reshape(-1, 4)[:, :3]
+    lum = rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    lower = lum.reshape(img.size[1], img.size[0])[: img.size[1] // 2]  # mitad inferior: jardín y suelo
+    ref = float(np.median(lower[:, ::4][::4])) or 1.0
+    N = nt.nodes
+    tc = N.new("ShaderNodeTexCoord")
+    rot = N.new("ShaderNodeMapping")
+    rot.inputs["Rotation"].default_value = (0.0, 0.0, sun_azimuth)
+    nt.links.new(tc.outputs["Generated"], rot.inputs["Vector"])
+    env = N.new("ShaderNodeTexEnvironment")
+    env.image = img
+    nt.links.new(rot.outputs["Vector"], env.inputs["Vector"])
+    ext = N.new("ShaderNodeBackground")
+    ext.inputs["Strength"].default_value = 1.6 * strength / ref  # jardín claro, como en una foto
+    nt.links.new(env.outputs["Color"], ext.inputs["Color"])
     out = N.get("World Output")
     lp = N.new("ShaderNodeLightPath")
     mix = N.new("ShaderNodeMixShader")
@@ -693,21 +938,36 @@ def develop(exr_path: Path, warmth: float, key: float = 0.18, ev: float | None =
 
 
 def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, light: str = "dia",
-           device: str = "auto", exposure: float | None = None, level: bool = True) -> dict:
+           device: str = "auto", exposure: float | None = None, level: bool = True,
+           library: str | None = None, bevel: float = BEVEL, aim: bool = True) -> dict:
+    global LIBRARY, LIBRARY_DIR, BEVEL
     t0 = time.perf_counter()
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    LIBRARY_DIR = Path(library) if library else None
+    LIBRARY = matlib.load_index(LIBRARY_DIR)
+    BEVEL = bevel
     scene = load_scene(export_dir)
     tris = visible_triangles(scene)
+    SEE_THROUGH.clear()
+    FLOOR_MATERIALS.clear()
+    FLOOR_MATERIALS.update(detect_floor(scene, tris))
     _, glass = build_meshes(scene, tris)
     w, h = setup_camera(scene, width, level)
     eye = Camera.from_scene(scene.camera, scene.view).eye
     ceiling = add_ceiling(scene, tris, eye)
     lamps = 0
+    sun_lit = None
     if light == "noche":
         setup_night()
         lamps = add_lamps(scene, tris, power=150.0)
     else:
-        setup_daylight(scene, light)
+        to_sun = None
+        if aim and glass:
+            found = aim_sun(scene, tris, bpy.context.scene.camera, 18.0 if light == "tarde" else 32.0,
+                            sun_direction(scene))
+            if found is not None:
+                to_sun, sun_lit = found
+        setup_daylight(scene, light, to_sun)
         if light == "tarde":
             lamps = add_lamps(scene, tris, power=100.0)
     portals = add_portals(scene, glass, eye)
@@ -736,6 +996,8 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     img.save_render(str(out), scene=bs)
     info = {"out": str(out), "exr": str(exr), "width": w, "height": h, "samples": samples, "light": light,
             "device": used, "portals": portals, "lamps": lamps, "ceiling_added": ceiling, "exposure": round(ev, 2),
+            "library": sorted(LIBRARY), "bevel": BEVEL, "floor_materials": sorted(FLOOR_MATERIALS),
+            "sun_aimed": sun_lit is not None, "sun_lit_fraction": round(sun_lit, 3) if sun_lit else None,
             "seconds_setup": round(t1 - t0, 1), "seconds_render": round(t2 - t1, 1)}
     out.with_suffix(".json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     return info
@@ -753,9 +1015,13 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--device", default="auto", help="auto, OPTIX, CUDA o CPU")
     ap.add_argument("--exposure", type=float, default=None, help="EV fijo (por defecto, automático)")
     ap.add_argument("--keep-camera", action="store_true", help="no corregir las verticales")
+    ap.add_argument("--library", default=None, help="carpeta de la biblioteca de materiales (matlib)")
+    ap.add_argument("--bevel", type=float, default=BEVEL, help="radio de cantos redondeados en m (0 = sin)")
+    ap.add_argument("--sun-from-model", action="store_true", help="usar el sol de SketchUp tal cual (sin orientarlo)")
     args = ap.parse_args(argv)
     info = render(args.export_dir, args.out, args.width, args.samples, args.light, args.device, args.exposure,
-                  level=not args.keep_camera)
+                  level=not args.keep_camera, library=args.library, bevel=args.bevel,
+                  aim=not args.sun_from_model)
     print(json.dumps(info, indent=2))
 
 

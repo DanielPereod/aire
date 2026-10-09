@@ -197,3 +197,12 @@ como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.
 - Qwen Image 2.1 trabaja a ~1 Mpx (presupuesto oficial) con la imagen ya a un tamaño múltiplo de 32 y `resolution = 0`, así el nodo no recorta ni reescala y el encuadre coincide con la base de Cycles. El resultado se amplía con Lanczos al tamaño final antes de fijar colores y del acabado. Antes de cargar Qwen se llama a `/free` para que no conviva en la RAM con otro motor. A 1920 px tardaba unos 190 s por pasada y dejaba el PC con 1 GB de RAM libre.
 - Si ComfyUI se cierra a mitad del trabajo, el usuario ve un aviso de falta de memoria en vez de un error de conexión.
 - Calidad «Sin IA» (`real`): solo el render de Cycles con el acabado de cámara; no arranca ComfyUI ni descarga modelos.
+
+### 0.11: realismo «tipo foto» con luz real
+
+- **Biblioteca de materiales** (`matlib.py`): tipos reconocidos por el nombre del material, de su textura o de sus objetos (madera, tarima, mármol, tela, cuero, ratán, alfombra, hormigón, metal, pintura). Para cada tipo se descarga de Poly Haven (CC0), la primera vez, un material escaneado a 2K: color, normal y rugosidad, en `<home>/library`. Se elige un preferido; si no existe, el más descargado que encaje. La elección queda en `index.json`. El color sigue siendo el del modelo: en colores lisos se aplica la variación del escaneo (color ÷ su media) y su relieve; con textura propia, solo la rugosidad irregular. Proyección por caja en metros reales. Las superficies lisas sin tipo reciben un relieve de pintura muy suave.
+- **Suelo detectado por geometría** (caras hacia arriba en el nivel más bajo, ≥ 2 m²): si no tiene nombre reconocible, piedra pulida o tarima según su color, con algo de reflejo.
+- **Cantos redondeados** con el nodo Bevel (4 mm) en el sombreado, sin tocar la geometría.
+- **Sol orientado**: con un BVH de la escena se lanzan rayos desde lo que ve la cámara hacia el sol, a 32° (día) o 18° (tarde), cada 10° de azimut. Se elige el que ilumina entre un 4 y un 35 % de la imagen pasando por una ventana; a igualdad, el más cercano al sol de SketchUp. `--sun-from-model` lo desactiva.
+- **Exterior HDRI**: un jardín de Poly Haven visto solo por los rayos de cámara, normalizado por la mediana de su mitad inferior.
+- **«Alta calidad» con Qwen**: añade al prompt un estilo de foto de catálogo con sol rasante. Fue lo que más acercó el resultado a las fotos de ejemplo de Dani.

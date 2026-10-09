@@ -197,6 +197,17 @@ EDIT_LOOK = ("Make it look like a photograph by a professional interior photogra
              "light falling off naturally across the room, true-to-life reflections on glossy and metal "
              "surfaces, realistic material texture at full resolution, natural colors, subtle real-world "
              "imperfections, no CGI look, no outlines, sharp focus.")
+# Estilo «foto de catálogo» (pruebas en el PC de Dani con sus fotos de ejemplo: lo que más acerca
+# el resultado a una foto es pedir sol bajo y rasante, reflejos en el suelo y gradación cálida)
+PHOTO_STYLE = ("Style: a professional interior design catalog photograph, high dynamic range, warm natural color "
+               "grading, soft gradient of light across the ceiling, gentle reflections on the floor, rich real "
+               "material textures (wood grain, fabric weave), crisp but natural.")
+PHOTO_LIGHTS = {
+    "dia": "warm late-afternoon sunlight raking through the windows, casting long crisp patches of sunlight "
+           "and soft shadows across the floor and walls, bright airy interior",
+    "tarde": "low golden hour sunlight raking through the windows, long warm light beams across the floor and "
+             "walls, deep soft shadows",
+}
 EDIT_CREATIVE = ("You may add a few small decorative props (plants, books, ceramics) that fit the scene, but keep "
                  "all existing furniture and finishes unchanged.")
 
@@ -235,8 +246,8 @@ def main_surfaces(scene: Scene, ids: np.ndarray, material: np.ndarray, albedo: n
 
 def build_edit_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: list[dict],
                       user: str = "", style: str = "", light: str | None = None, creative: bool = False,
-                      albedo: np.ndarray | None = None) -> str:
-    parts = [EDIT_KEEP, EDIT_DETAIL, EDIT_LOOK]
+                      albedo: np.ndarray | None = None, photo: bool = False) -> str:
+    parts = [EDIT_KEEP, EDIT_DETAIL, EDIT_LOOK] + ([PHOTO_STYLE] if photo else [])
     if albedo is not None:
         surfaces = main_surfaces(scene, ids, material, albedo)
         if surfaces:
@@ -246,7 +257,8 @@ def build_edit_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visib
         parts.append("Objects in the scene: " + ", ".join(items) + ".")
     if STYLES.get(style):
         parts.append(f"Keep the architecture and furniture, but give the decoration a feel of: {STYLES[style]}.")
-    parts.append("Lighting: " + (LIGHTS.get(light or "") or light_hint(scene)) + ".")
+    lights = {**LIGHTS, **PHOTO_LIGHTS} if photo else LIGHTS
+    parts.append("Lighting: " + (lights.get(light or "") or light_hint(scene)) + ".")
     if creative:
         parts.append(EDIT_CREATIVE)
     if user.strip():
