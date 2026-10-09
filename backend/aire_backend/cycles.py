@@ -45,7 +45,7 @@ PRESETS: list[tuple[str, dict]] = [
      {"roughness": 0.08, "coat": 0.3}),
     (r"azulejo|tile|cer[aá]mic|ceramic|metro", {"roughness": 0.12, "bump": 0.15}),
     (r"lacad|lacquer|laca|ral\d|gloss", {"roughness": 0.25}),
-    (r"nogal|walnut|roble|oak|madera|wood|fresno|ash|haya|teca|teak|pino|pine|chapa", {"roughness": 0.45, "bump": 0.25}),
+    (r"nogal|walnut|roble|oak|madera|wood|fresno|ash|haya|teca|teak|pino|pine|chapa", {"roughness": 0.65, "bump": 0.25}),
     (r"cuero|leather|piel", {"roughness": 0.5, "bump": 0.1}),
     (r"rat[aá]n|rattan|mimbre|wicker|ca[nñ]a|cane|fibra|jute|yute", {"roughness": 0.7, "bump": 0.5}),
     (r"tela|fabric|tejido|textil|lino|linen|algod|cotton|terciopelo|velvet|bouclé|boucle|tapiz|upholst|bege",
@@ -129,9 +129,10 @@ def build_material(scene: Scene, mid: int, params: dict, name: str):
         bsdf.inputs["Coat Roughness"].default_value = 0.03
     if params.get("sheen"):
         bsdf.inputs["Sheen Weight"].default_value = params["sheen"]
-    if params.get("bump") and color_socket is not None:
+    if color_socket is not None and params.get("kind") is None:
+        # Relieve a partir de la propia textura (suave si el material no dice otra cosa)
         bump = nodes.new("ShaderNodeBump")
-        bump.inputs["Strength"].default_value = params["bump"]
+        bump.inputs["Strength"].default_value = params.get("bump", 0.1)
         bump.inputs["Distance"].default_value = 0.002
         links.new(color_socket, bump.inputs["Height"])
         links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
@@ -229,7 +230,7 @@ def build_meshes(scene: Scene, visible_tris: np.ndarray) -> tuple[dict, list]:
         if key not in params_cache:
             p = material_params(scene, mid, key[1])
             if lamp and p.get("metallic", 0) < 0.5 and p.get("kind") is None:
-                p["translucent"] = 0.5
+                p["translucent"] = 0.3
             params_cache[key] = p
         return params_cache[key]
 
@@ -410,7 +411,16 @@ def setup_daylight(scene: Scene, light: str) -> None:
     sky.sun_rotation = math.atan2(to_sun[0], to_sun[1])
     bg = nt.nodes.get("Background")
     bg.inputs["Strength"].default_value = 0.6 if light == "tarde" else 1.0
-    nt.links.new(sky.outputs["Color"], bg.inputs["Color"])
+    # Cielo casi neutro para alumbrar: una cámara real compensa el azul del cielo con el balance
+    # de blancos; hacerlo en la luz conserva los colores propios (el beige sigue siendo beige).
+    bw = nt.nodes.new("ShaderNodeRGBToBW")
+    neutral = nt.nodes.new("ShaderNodeMix")
+    neutral.data_type = "RGBA"
+    neutral.inputs["Factor"].default_value = 0.75
+    nt.links.new(sky.outputs["Color"], bw.inputs["Color"])
+    nt.links.new(sky.outputs["Color"], neutral.inputs["A"])
+    nt.links.new(bw.outputs["Val"], neutral.inputs["B"])
+    nt.links.new(neutral.outputs["Result"], bg.inputs["Color"])
     _camera_sees(nt, bg, (1.0, 0.98, 0.95), 40.0)
     bpy.context.scene.world = world
 
@@ -617,7 +627,7 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     # De noche la imagen debe quedar oscura: el límite de EV evita «día nublado»
     img, ev = develop(exr, warmth, key=0.18 if light != "noche" else 0.08, ev=exposure,
                       max_ev=4.0 if light != "noche" else 6.0,
-                      balance={"dia": 0.85, "tarde": 0.4, "noche": 0.0}.get(light, 0.85))
+                      balance={"dia": 0.3, "tarde": 0.0, "noche": 0.0}.get(light, 0.3))
     bs.view_settings.exposure = ev
     bs.render.image_settings.file_format = "PNG"
     bs.render.image_settings.color_depth = "8"
