@@ -97,7 +97,7 @@ def material_params(scene: Scene, mid: int, object_names: str) -> dict:
     names = (info.get("name"), info.get("internal_name"), tex, object_names)
     if p.get("kind") is None and not any(n and matlib.SKIP.search(n) for n in names):
         k = matlib.kind_for(*names)
-        if k is None and mid in FLOOR_MATERIALS and not tex:
+        if k is None and mid in FLOOR_MATERIALS:  # con textura propia solo añade relieve y brillo
             k = matlib.BY_KEY[floor_kind(info.get("color", [200, 200, 200]))]
             p["roughness"] = 0.35 if k.key == "floor_stone" else 0.45  # suelo con algo de reflejo
         if k is None and not tex and p.get("metallic", 0) < 0.5:
@@ -127,7 +127,8 @@ def detect_floor(scene: Scene, tris: np.ndarray) -> set:
     p = scene.positions[tris].astype(np.float64)
     n = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
     area = np.linalg.norm(n, axis=1) / 2
-    up = (n[:, 2] / np.maximum(2 * area, 1e-12)) > 0.95
+    nz = n[:, 2] / np.maximum(2 * area, 1e-12)
+    up = np.abs(nz) > 0.95  # también caras giradas (SketchUp pinta a menudo el suelo en la cara trasera)
     if not up.any():
         return set()
     z = p[:, :, 2].mean(axis=1)
@@ -142,7 +143,8 @@ def detect_floor(scene: Scene, tris: np.ndarray) -> set:
     near = big & (np.abs(z - level) < 0.05)
     if area[near].sum() < 2.0:  # menos de 2 m² no es un suelo de estancia
         return set()
-    mats = scene.tri_material_front[tris[near]]
+    front, back = _face_material(scene.tri_material_front[tris[near]], scene.tri_material_back[tris[near]])
+    mats = np.where(nz[near] > 0, front, back)  # la cara que mira hacia arriba
     totals = {}
     for m, a in zip(mats.tolist(), area[near].tolist()):
         totals[m] = totals.get(m, 0.0) + a
@@ -376,8 +378,9 @@ def build_meshes(scene: Scene, visible_tris: np.ndarray) -> tuple[dict, list]:
     for oid in lamp_objects(scene):
         lamp_tri[np.isin(scene.tri_object, scene.descendants(oid))] = 1
     keys = np.stack([front, back, lamp_tri], axis=1)
+    # sin el modelo raíz: su título («Cocina azul y madera») no describe cada superficie
     names_by_obj = {o["id"]: " ".join(filter(None, (o.get("name"), o.get("definition"))))
-                    for o in scene.objects}
+                    for o in scene.objects if o.get("type") != "model"}
     params_cache: dict[tuple[int, str], dict] = {}
     mats_cache: dict[tuple, object] = {}
     objects = {}
@@ -466,12 +469,16 @@ def _as_group(mat):
                 except (TypeError, AttributeError):
                     pass
         mapping[n.name] = m
+    def by_id(sockets, ident):  # sockets[...] busca por nombre; el nodo Mix repite «A», «B», «Result»
+        return next(s for s in sockets if s.identifier == ident)
+
     for link in src.links:
         a, b = mapping[link.from_node.name], mapping[link.to_node.name]
+        out = by_id(a.outputs, link.from_socket.identifier)
         if b.bl_idname == "NodeGroupOutput":
-            group.links.new(a.outputs[link.from_socket.identifier], b.inputs[0])
+            group.links.new(out, b.inputs[0])
         else:
-            group.links.new(a.outputs[link.from_socket.identifier], b.inputs[link.to_socket.identifier])
+            group.links.new(out, by_id(b.inputs, link.to_socket.identifier))
     return group
 
 
