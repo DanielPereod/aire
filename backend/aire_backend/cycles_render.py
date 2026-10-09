@@ -425,7 +425,10 @@ def setup_daylight(scene: Scene, light: str) -> None:
     nt.links.new(sky.outputs["Color"], neutral.inputs["A"])
     nt.links.new(bw.outputs["Val"], neutral.inputs["B"])
     nt.links.new(neutral.outputs["Result"], bg.inputs["Color"])
-    _camera_sees(nt, bg, (1.0, 0.98, 0.95), 40.0)
+    if EXTERIOR:
+        _exterior_view(nt, bg, sky, 0.6 if light == "tarde" else 1.0)
+    else:
+        _camera_sees(nt, bg, (1.0, 0.98, 0.95), 40.0)
     bpy.context.scene.world = world
 
     sun = bpy.data.lights.new("sol", "SUN")
@@ -442,6 +445,76 @@ def setup_daylight(scene: Scene, light: str) -> None:
     m[:3, :3] = rot
     obj.matrix_world = Matrix(m.tolist())
     bpy.context.scene.collection.objects.link(obj)
+
+
+EXTERIOR = True
+
+
+def _exterior_view(nt, bg, sky, strength: float) -> None:
+    """Lo que se ve por las ventanas: cielo real (sin neutralizar), una línea de árboles
+    desenfocada en el horizonte y suelo de jardín, como el exterior fuera de foco de una foto.
+    Solo para rayos de cámara; la luz de la escena sigue saliendo del cielo neutro."""
+    N = nt.nodes
+    tc = N.new("ShaderNodeTexCoord")
+    xyz = N.new("ShaderNodeSeparateXYZ")
+    nt.links.new(tc.outputs["Generated"], xyz.inputs[0])
+    noise = N.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = 5.0
+    noise.inputs["Detail"].default_value = 6.0
+    nt.links.new(tc.outputs["Generated"], noise.inputs["Vector"])
+    # Altura de la copa de los árboles (0,05-0,3 en z de la dirección) según el ruido
+    top = N.new("ShaderNodeMapRange")
+    top.inputs["To Min"].default_value = 0.0
+    top.inputs["To Max"].default_value = 0.25
+    nt.links.new(noise.outputs["Fac"], top.inputs["Value"])
+    trees = N.new("ShaderNodeMath")
+    trees.operation = "LESS_THAN"
+    nt.links.new(xyz.outputs["Z"], trees.inputs[0])
+    nt.links.new(top.outputs["Result"], trees.inputs[1])
+    green = N.new("ShaderNodeMix")
+    green.data_type = "RGBA"
+    green.inputs["A"].default_value = (0.04, 0.07, 0.03, 1.0)
+    green.inputs["B"].default_value = (0.18, 0.26, 0.10, 1.0)
+    nt.links.new(noise.outputs["Fac"], green.inputs["Factor"])
+    sky_bw = N.new("ShaderNodeRGBToBW")
+    nt.links.new(sky.outputs["Color"], sky_bw.inputs["Color"])
+    lit = N.new("ShaderNodeMix")  # vegetación iluminada en proporción al cielo
+    lit.data_type = "RGBA"
+    lit.blend_type = "MULTIPLY"
+    lit.inputs["Factor"].default_value = 1.0
+    nt.links.new(green.outputs["Result"], lit.inputs["A"])
+    nt.links.new(sky_bw.outputs["Val"], lit.inputs["B"])
+    # Suelo (z < 0): césped y camino, algo más claro que los árboles
+    ground = N.new("ShaderNodeMix")
+    ground.data_type = "RGBA"
+    ground.blend_type = "MULTIPLY"
+    ground.inputs["Factor"].default_value = 1.0
+    ground.inputs["A"].default_value = (0.14, 0.19, 0.09, 1.0)
+    nt.links.new(sky_bw.outputs["Val"], ground.inputs["B"])
+    below = N.new("ShaderNodeMath")
+    below.operation = "LESS_THAN"
+    below.inputs[1].default_value = 0.0
+    nt.links.new(xyz.outputs["Z"], below.inputs[0])
+    view = N.new("ShaderNodeMix")
+    view.data_type = "RGBA"
+    nt.links.new(trees.outputs[0], view.inputs["Factor"])
+    nt.links.new(sky.outputs["Color"], view.inputs["A"])
+    nt.links.new(lit.outputs["Result"], view.inputs["B"])
+    view2 = N.new("ShaderNodeMix")
+    view2.data_type = "RGBA"
+    nt.links.new(below.outputs[0], view2.inputs["Factor"])
+    nt.links.new(view.outputs["Result"], view2.inputs["A"])
+    nt.links.new(ground.outputs["Result"], view2.inputs["B"])
+    ext = N.new("ShaderNodeBackground")
+    ext.inputs["Strength"].default_value = 3.0 * strength  # más claro que el interior
+    nt.links.new(view2.outputs["Result"], ext.inputs["Color"])
+    out = N.get("World Output")
+    lp = N.new("ShaderNodeLightPath")
+    mix = N.new("ShaderNodeMixShader")
+    nt.links.new(lp.outputs["Is Camera Ray"], mix.inputs["Fac"])
+    nt.links.new(bg.outputs[0], mix.inputs[1])
+    nt.links.new(ext.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs["Surface"])
 
 
 def _camera_sees(nt, bg, color, strength) -> None:
