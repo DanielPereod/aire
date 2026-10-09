@@ -19,6 +19,16 @@ from tests.test_render import fake_server  # noqa: F401  (fixture)
 Usage = namedtuple("Usage", "total used free")
 
 
+def fake_models(tmp_path, preset="flux2-klein4b"):
+    """Carpeta de ComfyUI con los ficheros del preset ya «descargados»."""
+    comfy = tmp_path / "ComfyUI"
+    for name in PRESETS[preset].files:
+        f = comfy / "models" / FILES[name].folder / name
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"x")
+    return comfy
+
+
 def comfy_zip() -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
@@ -85,9 +95,9 @@ def test_full_install_and_idempotent(env, monkeypatch):
     i, progress = make(env, fakes)
     i.install()
     cfg = json.loads((env / "config.json").read_text())
-    assert cfg["ready"] and cfg["preset"] == "zimage-control" and cfg["weight_dtype"] == "fp8_e4m3fn"
+    assert cfg["ready"] and cfg["preset"] == "flux2-klein4b"
     assert (env / "comfy" / "ComfyUI" / "main.py").exists()
-    for name in PRESETS["zimage-control"].files:
+    for name in PRESETS["flux2-klein4b"].files:
         assert (env / "comfy" / "ComfyUI" / "models" / FILES[name].folder / name).exists()
     torch_cmd = next(c for c in fakes.commands if "torch" in c)
     assert "--index-url" in torch_cmd and "cu13" in torch_cmd[-1]
@@ -176,14 +186,14 @@ def test_fetch_resumes_partial_download(tmp_path):
 def test_render_job_end_to_end(tmp_path, monkeypatch, fake_server):  # noqa: F811
     home = tmp_path / "AIRE"
     home.mkdir()
-    (home / "config.json").write_text(json.dumps({"ready": True, "weight_dtype": "fp8_e4m3fn", "port": 1}))
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "comfy_dir": str(fake_models(tmp_path))}))
     monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
     export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
     progress = Progress(tmp_path / "jobs" / "1" / "job.json", jobmod.STEPS)
     result = jobmod.run_job(home, export, "con plantas", "nordico", "tarde", "rapida", 7, progress, variants=2)
     assert len(result["images"]) == 2
     assert "Scandinavian" in result["prompt"] and "golden hour" in result["prompt"]
-    assert result["prompt"].startswith("con plantas")
+    assert "Keep exactly the same camera" in result["prompt"] and "Also: con plantas" in result["prompt"]
     for img in result["images"]:
         assert Path(img["path"]).exists() and Path(img["thumb"]).exists()
     assert (Path(result["folder"]) / "result.json").exists()
@@ -216,7 +226,7 @@ def test_packaged_extension_runs_job(tmp_path, fake_server):  # noqa: F811
     home = tmp_path / "AIRE"
     home.mkdir()
     port = int(fake_server.rsplit(":", 1)[1])
-    (home / "config.json").write_text(json.dumps({"ready": True, "port": port, "weight_dtype": "fp8_e4m3fn"}))
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": port, "comfy_dir": str(fake_models(tmp_path))}))
     job = tmp_path / "jobs" / "1"
     export = build_interior(job / "export", 320, 200)
     (job / "prompt.txt").write_text('con "comillas" y\nsaltos de línea, ñ', encoding="utf-8")
@@ -228,7 +238,7 @@ def test_packaged_extension_runs_job(tmp_path, fake_server):  # noqa: F811
     state = json.loads((job / "job.json").read_text(encoding="utf-8"))
     assert proc.returncode == 0, (proc.stderr, state)
     assert state["state"] == "done"
-    assert state["result"]["prompt"].startswith('con "comillas" y\nsaltos de línea, ñ')
+    assert 'Also: con "comillas" y\nsaltos de línea, ñ' in state["result"]["prompt"]
     assert Path(state["result"]["images"][0]["thumb"]).exists()
     assert (tmp_path / "local" / "AIRE" / "cache" / "numba").exists()  # caché fuera de la extensión
 
@@ -361,3 +371,41 @@ def test_run_py_reports_import_crash(tmp_path):
     state = json.loads(progress.read_text(encoding="utf-8"))
     assert state["state"] == "error" and "ModuleNotFoundError" in state["technical"]
     assert (tmp_path / "AIRE" / "logs" / "crash.log").exists()
+
+
+def test_render_job_downloads_flux_first_time(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    home = tmp_path / "AIRE"
+    home.mkdir()
+    comfy = tmp_path / "ComfyUI"
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "comfy_dir": str(comfy)}))
+    monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
+    fetched = []
+
+    def fake_fetch(url, dest, on_bytes=None):
+        fetched.append(dest.name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"w")
+        if on_bytes:
+            on_bytes(1, 1)
+
+    monkeypatch.setattr("aire_backend.models.fetch", fake_fetch)
+    export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
+    progress = Progress(tmp_path / "jobs" / "1" / "job.json", jobmod.STEPS)
+    jobmod.run_job(home, export, "", "modelo", "dia", "rapida", 1, progress)
+    assert sorted(fetched) == sorted(PRESETS["flux2-klein4b"].files)
+    fetched.clear()
+    jobmod.run_job(home, export, "", "modelo", "dia", "rapida", 1, progress)
+    assert fetched == []  # la segunda vez ya no descarga
+
+
+def test_compare_mode_makes_eight_labelled_variants(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    home = tmp_path / "AIRE"
+    home.mkdir()
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "comfy_dir": str(fake_models(tmp_path))}))
+    monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
+    export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
+    result = jobmod.run_job(home, export, "", "modelo", "dia", "comparar", 5,
+                            Progress(None, jobmod.STEPS))
+    labels = [img["label"] for img in result["images"]]
+    assert len(labels) == 8 and len(set(labels)) == 8
+    assert any("con atrezo" in l for l in labels) and any("8 pasos" in l for l in labels)

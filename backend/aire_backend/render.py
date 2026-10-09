@@ -27,7 +27,7 @@ from .fidelity import load_lines, score
 from .passes import Passes
 from .prompt import build_prompt
 from .scene import load_scene
-from .workflows import ZImageSettings, zimage_control
+from .workflows import KleinSettings, ZImageSettings, flux2_klein_edit, zimage_control
 
 
 def round16(x: float) -> int:
@@ -54,7 +54,9 @@ def sweep_grid(base: ZImageSettings) -> list[ZImageSettings]:
     return runs
 
 
-def label(s: ZImageSettings) -> str:
+def label(s) -> str:
+    if isinstance(s, KleinSettings):
+        return f"FLUX klein · {s.steps} pasos · semilla {s.seed}" + (" · " + s.tag if getattr(s, "tag", "") else "")
     text = f"depth {s.depth_strength:.2f} · lines {s.lines_strength:.2f} · denoise {s.denoise:.2f}"
     return text + (f" · refine {s.refine:.2f}" if s.refine else "")
 
@@ -76,16 +78,21 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
                 on_each=None, thumbs: bool = False) -> list[dict]:
     """Sube los pases, renderiza cada ajuste y devuelve resultados con fidelidad.
     on_each(i, n, fase) se llama antes de cada render para informar del avance."""
-    depth = client.upload_image(pdir / "depth_control.png")
-    lines = client.upload_image(pdir / "edges_control.png")
     init = client.upload_image(pdir / "shaded.png")  # imagen base fiel al modelo
+    needs_control = any(isinstance(s, ZImageSettings) for s in runs)
+    depth = client.upload_image(pdir / "depth_control.png") if needs_control else None
+    lines = client.upload_image(pdir / "edges_control.png") if needs_control else None
     ref_lines = load_lines(pdir)
     out_dir.mkdir(parents=True, exist_ok=True)
     results = []
     for i, s in enumerate(runs):
         if on_each:
             on_each(i, len(runs))
-        wf = zimage_control(s, depth, lines, init, prefix=f"aire/{out_dir.name}_{i:02d}")
+        prefix = f"aire/{out_dir.name}_{i:02d}"
+        if isinstance(s, KleinSettings):
+            wf = flux2_klein_edit(s, init, prefix=prefix)
+        else:
+            wf = zimage_control(s, depth, lines, init, prefix=prefix)
         t0 = time.perf_counter()
         images = client.run(wf, check=(i == 0))
         secs = time.perf_counter() - t0

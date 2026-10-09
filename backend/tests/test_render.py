@@ -41,7 +41,16 @@ OBJECT_INFO = {
         "model", "seed", "steps", "cfg", "sampler_name", "scheduler", "positive", "negative", "latent_image", "denoise")}}},
     "VAEDecode": {"input": {"required": {"samples": ["LATENT"], "vae": ["VAE"]}}},
     "SaveImage": {"input": {"required": {"images": ["IMAGE"], "filename_prefix": ["STRING", {}]}}},
+    "ReferenceLatent": {"input": {"required": {"conditioning": ["CONDITIONING"]}, "optional": {"latent": ["LATENT"]}}},
+    "CFGGuider": {"input": {"required": {"model": ["MODEL"], "positive": ["C"], "negative": ["C"], "cfg": ["FLOAT", {}]}}},
+    "RandomNoise": {"input": {"required": {"noise_seed": ["INT", {}]}}},
+    "KSamplerSelect": {"input": {"required": {"sampler_name": [["euler"]]}}},
+    "Flux2Scheduler": {"input": {"required": {"steps": ["INT", {}], "width": ["INT", {}], "height": ["INT", {}]}}},
+    "EmptyFlux2LatentImage": {"input": {"required": {"width": ["INT", {}], "height": ["INT", {}], "batch_size": ["INT", {}]}}},
+    "SamplerCustomAdvanced": {"input": {"required": {k: ["X"] for k in ("noise", "guider", "sampler", "sigmas", "latent_image")}}},
 }
+OBJECT_INFO["UNETLoader"]["input"]["required"]["unet_name"] = [["z_image_turbo_bf16.safetensors", "flux-2-klein-4b-fp8.safetensors"]]
+OBJECT_INFO["VAELoader"]["input"]["required"]["vae_name"] = [["ae.safetensors", "flux2-vae.safetensors"]]
 
 
 def settings(**kw):
@@ -98,7 +107,7 @@ def test_prepare_passes_multiple_of_16(tmp_path):
 def test_model_catalog_and_recommendation():
     for p in PRESETS.values():
         assert all(f in FILES for f in p.files)
-    assert recommend(8.0) == {"render": "zimage-control", "edit": "flux2-klein4b-edit"}
+    assert recommend(8.0) == {"render": "flux2-klein4b", "edit": "flux2-klein4b-edit"}
     assert recommend(None) == {"render": None, "edit": None}
     assert recommend(24)["edit"] in ("flux2-dev-edit", "qwen2511-edit")
     assert weight_dtype_for(8.0) == "fp8_e4m3fn" and weight_dtype_for(24) == "default"
@@ -186,3 +195,31 @@ def test_real_comfy_accepts_all_sweep_workflows(tmp_path):
                                      {"Content-Type": "application/json"})
         with urllib.request.urlopen(req) as r:
             assert json.loads(r.read())["node_errors"] == {}
+
+
+def test_klein_edit_workflow_structure():
+    from aire_backend.workflows import KleinSettings, flux2_klein_edit
+    wf = flux2_klein_edit(KleinSettings(width=1024, height=672, prompt="p", seed=3), "aire/shaded.png")
+    assert validate(wf, OBJECT_INFO) == []
+    types = [n["class_type"] for n in wf.values()]
+    assert types.count("ReferenceLatent") == 2  # positivo y negativo con la imagen base
+    clip = next(n for n in wf.values() if n["class_type"] == "CLIPLoader")
+    assert clip["inputs"]["type"] == "flux2"
+    sched = next(n for n in wf.values() if n["class_type"] == "Flux2Scheduler")
+    assert sched["inputs"] == {"steps": 4, "width": 1024, "height": 672}
+
+
+@pytest.mark.skipif(not os.environ.get("AIRE_COMFY_URL"), reason="AIRE_COMFY_URL no definido")
+def test_real_comfy_accepts_klein_workflow(tmp_path):
+    from aire_backend.workflows import KleinSettings, flux2_klein_edit
+    url = os.environ["AIRE_COMFY_URL"]
+    client = ComfyClient(url)
+    img = tmp_path / "x.png"
+    Image.new("RGB", (64, 64)).save(img)
+    name = client.upload_image(img)
+    wf = flux2_klein_edit(KleinSettings(width=512, height=512, prompt="test"), name)
+    assert validate(wf, client.object_info()) == []
+    req = urllib.request.Request(url + "/prompt", json.dumps({"prompt": wf}).encode(),
+                                 {"Content-Type": "application/json"})
+    with urllib.request.urlopen(req) as r:
+        assert json.loads(r.read())["node_errors"] == {}

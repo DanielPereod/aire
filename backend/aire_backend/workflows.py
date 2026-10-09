@@ -44,6 +44,54 @@ class ZImageSettings:
         return asdict(self)
 
 
+@dataclass
+class KleinSettings:
+    width: int
+    height: int
+    prompt: str
+    seed: int = 0
+    steps: int = 4
+    cfg: float = 1.0
+    sampler: str = "euler"
+    unet: str = "flux-2-klein-4b-fp8.safetensors"
+    text_encoder: str = "qwen_3_4b.safetensors"
+    vae: str = "flux2-vae.safetensors"
+    weight_dtype: str = "default"  # el fichero ya viene en FP8
+    tag: str = ""  # etiqueta para comparar variantes
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def flux2_klein_edit(s: KleinSettings, base_image: str, extra_refs: tuple[str, ...] = (),
+                     prefix: str = "aire/render") -> dict:
+    """FLUX.2 [klein] en modo edición (estructura del flujo oficial «Image Edit 4B distilled»):
+    la imagen base del modelo entra como referencia y el texto pide fotorrealizarla."""
+    g = Graph()
+    unet = g.add("UNETLoader", unet_name=s.unet, weight_dtype=s.weight_dtype)
+    clip = g.add("CLIPLoader", clip_name=s.text_encoder, type="flux2", device="default")
+    vae = g.add("VAELoader", vae_name=s.vae)
+
+    pos = g.add("CLIPTextEncode", text=s.prompt, clip=g.out(clip))
+    neg = g.add("ConditioningZeroOut", conditioning=g.out(pos))
+    for ref in (base_image, *extra_refs):
+        img = g.add("LoadImage", image=ref)
+        lat = g.add("VAEEncode", pixels=g.out(img), vae=g.out(vae))
+        pos = g.add("ReferenceLatent", conditioning=g.out(pos), latent=g.out(lat))
+        neg = g.add("ReferenceLatent", conditioning=g.out(neg), latent=g.out(lat))
+
+    guider = g.add("CFGGuider", model=g.out(unet), positive=g.out(pos), negative=g.out(neg), cfg=s.cfg)
+    noise = g.add("RandomNoise", noise_seed=s.seed)
+    sampler = g.add("KSamplerSelect", sampler_name=s.sampler)
+    sigmas = g.add("Flux2Scheduler", steps=s.steps, width=s.width, height=s.height)
+    latent = g.add("EmptyFlux2LatentImage", width=s.width, height=s.height, batch_size=1)
+    out = g.add("SamplerCustomAdvanced", noise=g.out(noise), guider=g.out(guider), sampler=g.out(sampler),
+                sigmas=g.out(sigmas), latent_image=g.out(latent))
+    image = g.add("VAEDecode", samples=g.out(out), vae=g.out(vae))
+    g.add("SaveImage", images=g.out(image), filename_prefix=prefix)
+    return g.to_json()
+
+
 def zimage_control(s: ZImageSettings, depth_image: str, lines_image: str | None,
                    init_image: str | None = None, prefix: str = "aire/render") -> dict:
     """Z-Image-Turbo guiado por profundidad (+ líneas) con ControlNet Union.

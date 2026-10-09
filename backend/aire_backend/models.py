@@ -33,7 +33,10 @@ FILES = {f.name: f for f in [
               "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors"),
     ModelFile("Z-Image-Turbo-Fun-Controlnet-Union.safetensors", "model_patches",
               "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union.safetensors"),
-    # FLUX.2 [klein] 4B (Apache 2.0): edición con referencias
+    # FLUX.2 [klein] 4B destilado (Apache 2.0): edición con referencias en 4 pasos
+    ModelFile("flux-2-klein-4b-fp8.safetensors", "diffusion_models",
+              "https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-fp8/resolve/main/flux-2-klein-4b-fp8.safetensors"),
+    # FLUX.2 [klein] 4B base (sin destilar, 20 pasos)
     ModelFile("flux-2-klein-base-4b-fp8.safetensors", "diffusion_models",
               "https://huggingface.co/black-forest-labs/FLUX.2-klein-base-4b-fp8/resolve/main/flux-2-klein-base-4b-fp8.safetensors"),
     ModelFile("flux2-vae.safetensors", "vae",
@@ -67,7 +70,15 @@ class Preset:
 
 PRESETS = {p.id: p for p in [
     Preset(
-        "zimage-control", "Z-Image-Turbo + ControlNet Union (profundidad + líneas)", "render", 8,
+        "flux2-klein4b", "FLUX.2 [klein] 4B (fotorrealiza la imagen base del modelo)", "render", 8,
+        ("flux-2-klein-4b-fp8.safetensors", "qwen_3_4b.safetensors", "flux2-vae.safetensors"),
+        "Apache 2.0",
+        "Modelo de edición: parte de la imagen base del modelo (materiales reales) y la vuelve "
+        "fotográfica conservando objetos y distribución. 4 pasos.",
+        {"steps": 4, "cfg": 1.0, "sampler": "euler"},
+    ),
+    Preset(
+        "zimage-control", "Z-Image-Turbo + ControlNet Union (profundidad + líneas)", "control", 8,
         ("z_image_turbo_bf16.safetensors", "qwen_3_4b.safetensors", "ae.safetensors",
          "Z-Image-Turbo-Fun-Controlnet-Union.safetensors"),
         "Apache 2.0",

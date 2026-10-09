@@ -283,9 +283,12 @@ class Installer:
         client = comfyctl.ensure(self.home, self.cfg, timeout=900, on_wait=lambda t: self.progress.update(
             f"Arrancando el motor por primera vez… {int(t)} s", None))
         from .comfy import validate
-        from .workflows import ZImageSettings, zimage_control
-        wf = zimage_control(ZImageSettings(width=512, height=512, prompt="test",
-                                           weight_dtype=self.cfg["weight_dtype"]), "x.png", "x.png")
+        from .workflows import KleinSettings, ZImageSettings, flux2_klein_edit, zimage_control
+        if self.cfg["preset"] == "zimage-control":
+            wf = zimage_control(ZImageSettings(width=512, height=512, prompt="test",
+                                               weight_dtype=self.cfg["weight_dtype"]), "x.png", "x.png")
+        else:
+            wf = flux2_klein_edit(KleinSettings(width=512, height=512, prompt="test"), "x.png")
         problems = validate(wf, client.object_info())
         if problems:
             raise RuntimeError("Validación del flujo: " + "; ".join(problems))

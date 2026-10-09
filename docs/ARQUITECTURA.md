@@ -17,6 +17,20 @@ captura de pantalla.
 | Motor local | **ComfyUI** en modo servidor, controlado por el backend |
 | Usuario final | Persona **no técnica**: solo instala el `.rbz`; todo lo demás, desde la ventana de AIRE |
 
+## Motor de render actual (v0.6): FLUX.2 [klein] 4B en modo edición
+
+Lecciones de las pruebas reales con el modelo de la usuaria (cocina):
+- Z-Image + ControlNet desde ruido, controles fuertes → respeta la geometría pero parece un
+  dibujo (contornos negros, luz plana).
+- Mismo flujo, controles suaves → se inventa otra habitación.
+- Z-Image img2img desde una imagen base → sigue cambiando demasiado.
+
+Ahora: `shaded.png` (materiales y texturas reales del modelo + luz sencilla) entra como
+**imagen de referencia** en FLUX.2 klein 4B (destilado, 4 pasos, cabe en 8 GB) con la
+instrucción de convertirla en fotografía sin añadir, quitar ni mover nada. Los modelos de
+edición están entrenados para conservar lo que no se pide cambiar. El modelo se descarga
+en el primer render (~4 GB) si la instalación era anterior.
+
 ## Idea central: G-buffer exacto desde el modelo
 
 Cualquier modelo de difusión acaba recibiendo imágenes 2D. La diferencia está en

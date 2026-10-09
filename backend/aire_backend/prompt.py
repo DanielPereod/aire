@@ -86,3 +86,30 @@ def build_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: l
         parts.append(LIGHTS.get(light or "", "") or light_hint(scene))
     parts.append(QUALITY)
     return ". ".join(p for p in parts if p)
+
+
+# --- Instrucción para modelos de edición (FLUX.2 klein): fotorrealizar sin cambiar nada
+EDIT_KEEP = ("Turn this 3D render into a real photograph of the same interior. Keep exactly the same camera "
+             "angle, room layout, furniture, objects, shapes, materials, colors and textures: do not add, "
+             "remove, move or replace anything.")
+EDIT_LOOK = ("Make it look like professional interior design photography: realistic lighting with soft natural "
+             "shadows and contact shadows, subtle reflections on glossy surfaces, fine material detail (wood "
+             "grain, stone veining, fabric weave), natural colors, no outlines, sharp focus.")
+EDIT_CREATIVE = ("You may add a few small decorative props (plants, books, ceramics) that fit the scene, but keep "
+                 "all existing furniture and finishes unchanged.")
+
+
+def build_edit_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: list[dict],
+                      user: str = "", style: str = "", light: str | None = None, creative: bool = False) -> str:
+    parts = [EDIT_KEEP, EDIT_LOOK]
+    items = scene_items(scene, ids, material, visible)
+    if items:
+        parts.append("Materials in the scene: " + ", ".join(items) + ".")
+    if STYLES.get(style):
+        parts.append(f"Keep the architecture and furniture, but give the decoration a feel of: {STYLES[style]}.")
+    parts.append("Lighting: " + (LIGHTS.get(light or "") or light_hint(scene)) + ".")
+    if creative:
+        parts.append(EDIT_CREATIVE)
+    if user.strip():
+        parts.append("Also: " + user.strip())
+    return " ".join(parts)
