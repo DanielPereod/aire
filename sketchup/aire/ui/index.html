@@ -153,7 +153,10 @@
       <p><a href="#" id="job-log" class="muted">Ver el registro técnico</a></p>
     </div>
 
-    <h2 id="gallery-title" class="hidden">Tus imágenes</h2>
+    <div class="row" style="justify-content: space-between; margin: 4px 0 8px">
+      <h2 id="gallery-title" class="hidden" style="margin:0">Tus imágenes</h2>
+      <button id="btn-folder">Abrir carpeta de imágenes</button>
+    </div>
     <div class="gallery" id="gallery"></div>
 
     <div class="card" style="margin-top:14px">
@@ -358,6 +361,7 @@ function requestState() {
 $("btn-reload").onclick = requestState;
 
 $("btn-install").onclick = () => call("install");
+$("btn-folder").onclick = () => call("open_jobs");
 $("btn-retry").onclick = () => call("install");
 $("btn-render").onclick = () => {
   const params = {

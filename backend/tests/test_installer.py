@@ -331,3 +331,33 @@ def test_speed_and_eta_texts():
     rate = m.update("f", 100 * 2**20)  # muchos segundos después de t=0
     assert rate and rate > 0
     assert _eta(30) == "menos de 2 min" and _eta(600) == "10 min" and _eta(5400) == "1 h 30 min"
+
+
+def test_run_py_reports_early_crash_to_progress(tmp_path):
+    """Si el trabajo falla antes de poder informar, la ventana debe enterarse."""
+    import subprocess
+    import sys
+    run_py = Path(__file__).resolve().parents[1] / "run.py"
+    progress = tmp_path / "job.json"
+    progress.write_text(json.dumps({"state": "running", "steps": ["Preparando la escena"], "step": 0}))
+    # --export inexistente: falla dentro de job antes de crear su Progress
+    proc = subprocess.run([sys.executable, str(run_py), "job", "--home", str(tmp_path / "nohome"),
+                           "--export", str(tmp_path / "nada"), "--progress", str(progress)],
+                          capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "LOCALAPPDATA": str(tmp_path)})
+    assert proc.returncode != 0
+    state = json.loads(progress.read_text(encoding="utf-8"))
+    assert state["state"] == "error" and state["error"]
+
+
+def test_run_py_reports_import_crash(tmp_path):
+    import subprocess
+    import sys
+    run_py = Path(__file__).resolve().parents[1] / "run.py"
+    progress = tmp_path / "job.json"
+    progress.write_text(json.dumps({"state": "running"}))
+    proc = subprocess.run([sys.executable, str(run_py), "no_existe", "--progress", str(progress)],
+                          capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "LOCALAPPDATA": str(tmp_path)})
+    assert proc.returncode != 0
+    state = json.loads(progress.read_text(encoding="utf-8"))
+    assert state["state"] == "error" and "ModuleNotFoundError" in state["technical"]
+    assert (tmp_path / "AIRE" / "logs" / "crash.log").exists()

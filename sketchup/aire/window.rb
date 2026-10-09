@@ -44,6 +44,7 @@ module Aire
       on('open_folder') { |_ctx, path| open_path(File.dirname(path)) }
       on('open_log') { |_ctx, path| open_path(path) }
       on('save_image') { |_ctx, path| save_image(path) }
+      on('open_jobs') { |_ctx| open_jobs }
       @dialog.set_on_closed { stop_timer }
     end
 
@@ -183,6 +184,12 @@ module Aire
       dest += '.png' unless dest.downcase.end_with?('.png')
       FileUtils.cp(path, dest)
       js('aire.toast("Imagen guardada")')
+    end
+
+    def open_jobs
+      dir = File.join(Env.home, 'jobs')
+      FileUtils.mkdir_p(dir)
+      open_path(dir)
     end
 
     def open_path(path)
