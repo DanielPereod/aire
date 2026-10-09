@@ -1,0 +1,27 @@
+[project]
+name = "aire-backend"
+version = "0.1.0"
+description = "Backend local del plugin AIRE (render IA para SketchUp)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "numba>=0.60",
+    "pillow>=10",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+aire-passes = "aire_backend.passes:main"
+aire-mask = "aire_backend.mask:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["aire_backend*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
