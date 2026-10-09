@@ -79,12 +79,17 @@ def id_color(oid: int) -> tuple[int, int, int]:
 
 class Passes:
     def __init__(self, scene: Scene, width: int | None = None, smooth_angle: float = 35.0,
-                 section_keep: str = "auto"):
+                 section_keep: str = "auto", height: int | None = None):
+        """height fuerza el alto (p. ej. múltiplo de 16 para difusión) conservando el
+        FOV vertical; el encuadre horizontal varía en la misma proporción (<1 %)."""
         self.scene = scene
         self.smooth_angle = smooth_angle
         self.section_keep = section_keep
         self.camera = Camera.from_scene(scene.camera, scene.view)
         self.width, self.height = self.camera.resolution(width or scene.view["width"])
+        if height:
+            self.height = int(height)
+            self.camera.aspect = self.width / self.height
         self.arrays: dict[str, np.ndarray] = {}
         self._tex_cache: dict[Path, np.ndarray | None] = {}
 

@@ -13,7 +13,8 @@ captura de pantalla.
 | Plataforma | **Windows** |
 | Tipo de escena | **Interiorismo** |
 | Ediciones del chat | **Solo sobre el render** (no tocan el modelo de SketchUp) |
-| Pruebas | El usuario tiene escenas y GPU para medir |
+| Pruebas | El usuario tiene escenas y una **RTX 5060 (8 GB)** |
+| Motor local | **ComfyUI** en modo servidor, controlado por el backend |
 
 ## Idea central: G-buffer exacto desde el modelo
 
@@ -44,9 +45,9 @@ SketchUp (extensión Ruby)
 Backend local (Python, instalado aparte)
  ├─ passes.py        rasterizador CPU (numba) → pases de control      [P1, hecho]
  ├─ mask.py          máscaras por objeto desde el pase de ids        [P1, hecho]
- ├─ motor difusión   ComfyUI headless o diffusers                    [P2]
+ ├─ render.py        Z-Image + ControlNet vía ComfyUI, barrido y fidelidad [P2, hecho]
  ├─ agente           LLM con herramientas (buscar objeto, máscara, inpaint, referencias) [P3-P4]
- └─ hardware         detección GPU/VRAM/RAM → recomendación de modelo [P4]
+ └─ hardware.py      detección GPU/VRAM/RAM → recomendación de modelo [P2, hecho]
 ```
 
 **Por qué el rasterizador en CPU**: es determinista, no necesita contexto OpenGL,
@@ -101,8 +102,9 @@ Cada edición es una versión nueva del render (historial con deshacer).
 ## Hoja de ruta
 
 - **P1, exportador y pases**: hecho. Verificar con escenas reales (ver [P1.md](P1.md)).
-- **P2, render**: comparar SDXL+ControlNet, FLUX.2 klein 4B/9B y Qwen-Image-Edit
-  sobre los pases, con métrica de fidelidad, VRAM y tiempo.
+- **P2, render**: Z-Image-Turbo + ControlNet Union (profundidad + líneas) vía ComfyUI,
+  métrica de fidelidad, barrido de ajustes, detección de hardware y descarga de
+  modelos. Hecho; falta medir en la 5060 (ver [P2.md](P2.md)).
 - **P3, edición por objeto**: inpainting con máscara de ids y referencias.
 - **P4, producto**: UI de chat en HtmlDialog, servidor local, selector de hardware,
   descarga de modelos y proveedor de nube.

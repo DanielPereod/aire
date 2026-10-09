@@ -27,7 +27,8 @@ module Aire
     msg = +"Exportado en #{secs}s:\n#{dir}\n\n" \
            "#{result[:triangles]} triángulos · #{result[:edges]} aristas · " \
            "#{result[:objects]} objetos · #{result[:materials]} materiales\n\n" \
-           "Genera los pases con:\npython -m aire_backend.passes \"#{dir}\""
+           "Pases:\npython -m aire_backend.passes \"#{dir}\"\n\n" \
+           "Render (con ComfyUI en marcha):\npython -m aire_backend.render \"#{dir}\" --sweep"
     msg << "\n\nAvisos:\n- #{result[:warnings].join("\n- ")}" unless result[:warnings].empty?
     UI.messagebox(msg)
   rescue StandardError => e
