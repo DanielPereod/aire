@@ -64,8 +64,12 @@ module Aire
       s = Env.read_json(path)
       return nil unless s
 
-      if s['state'] == 'running' && Time.now.to_f - s['updated'].to_f > STALE_SECONDS
-        s['state'] = 'interrupted'
+      if s['state'] == 'running'
+        age = Time.now.to_f - s['updated'].to_f
+        # Se interrumpió si no da señales o si su proceso ya no existe (se cerró sin avisar).
+        # El margen de 20 s cubre el relevo entre bootstrap.ps1 y el instalador en Python.
+        dead = age > 20 && !Env.process_alive?(s['pid'])
+        s['state'] = 'interrupted' if age > STALE_SECONDS || dead
       end
       s
     end

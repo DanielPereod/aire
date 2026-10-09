@@ -121,6 +121,22 @@ class WindowTest < Minitest::Test
     assert_equal 'interrupted', last_state['setup']['state']
   end
 
+  def test_dead_installer_process_shows_as_interrupted_quickly
+    file = Aire::Env.setup_progress_file
+    FileUtils.mkdir_p(File.dirname(file))
+    File.write(file, JSON.generate(state: 'running', updated: Time.now.to_f - 30, pid: 4242, steps: ['x'], step: 0))
+    original = Aire::Env.method(:process_alive?)
+    Aire::Env.define_singleton_method(:process_alive?) { |pid| pid.to_i != 4242 }
+    @dialog.trigger('ready')
+    assert_equal 'interrupted', last_state['setup']['state']
+    # Recién actualizado: aunque no se pueda comprobar el proceso, sigue «running»
+    File.write(file, JSON.generate(state: 'running', updated: Time.now.to_f, pid: 4242, steps: ['x'], step: 0))
+    @dialog.trigger('ready')
+    assert_equal 'running', last_state['setup']['state']
+  ensure
+    Aire::Env.define_singleton_method(:process_alive?, original) if original
+  end
+
   def test_render_exports_view_and_starts_job
     make_ready
     @dialog.trigger('render', JSON.generate(style: 'nordico', light: 'tarde', quality: 'rapida', variants: 9,

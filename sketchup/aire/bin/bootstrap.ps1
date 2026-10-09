@@ -54,6 +54,9 @@ try {
   $env:UV_PYTHON_INSTALL_DIR = Join-Path $AireHome 'python'
   $env:UV_CACHE_DIR = Join-Path $AireHome 'cache'
   $env:UV_LINK_MODE = 'copy'
+  # Solo el Python propio de AIRE: si uv usara otro que encuentre en el PC (p. ej. el de
+  # StabilityMatrix), AIRE dejaría de funcionar al desinstalar ese programa.
+  $env:UV_PYTHON_PREFERENCE = 'only-managed'
 
   $UvDir = Join-Path $AireHome 'uv'
   $Uv = Join-Path $UvDir 'uv.exe'
@@ -67,6 +70,15 @@ try {
 
   $EnvDir = Join-Path $AireHome 'env'
   $Py = Join-Path $EnvDir 'Scripts\python.exe'
+  $VenvCfg = Join-Path $EnvDir 'pyvenv.cfg'
+  if ((Test-Path -LiteralPath $Py) -and (Test-Path -LiteralPath $VenvCfg)) {
+    $OwnPython = Join-Path $AireHome 'python'
+    $base = (Get-Content -LiteralPath $VenvCfg | Where-Object { $_ -match '^\s*home\s*=' }) -replace '^\s*home\s*=\s*', ''
+    if (-not ("$base".ToLower().StartsWith($OwnPython.ToLower()))) {
+      Add-Content -LiteralPath $Log -Value "Entorno creado con un Python ajeno ($base): se rehace"
+      Remove-Item -Recurse -Force -LiteralPath $EnvDir
+    }
+  }
   if (-not (Test-Path -LiteralPath $Py)) {
     Write-State 'running' 'Preparando Python…' $null
     if ((Invoke-Logged $Uv @('venv', $EnvDir, '--python', '3.12')) -ne 0) { throw 'uv venv' }

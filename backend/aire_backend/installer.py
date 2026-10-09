@@ -71,6 +71,28 @@ def venv_python(venv: Path) -> Path:
     return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
+def venv_base_python(venv: Path) -> str | None:
+    """Carpeta del Python sobre el que se creó el entorno (línea «home» de pyvenv.cfg)."""
+    cfg = venv / "pyvenv.cfg"
+    if not cfg.exists():
+        return None
+    for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+        key, _, value = line.partition("=")
+        if key.strip().lower() == "home":
+            return value.strip()
+    return None
+
+
+def uses_own_python(venv: Path, home: Path) -> bool:
+    """¿El entorno usa el Python que instala AIRE? Si se creó con otro (p. ej. el de
+    StabilityMatrix en Descargas), dejaría de funcionar al desinstalar ese programa."""
+    base = venv_base_python(venv)
+    if base is None:
+        return False
+    own = os.path.normcase(os.path.abspath(home / "python"))
+    return os.path.normcase(os.path.abspath(base)).startswith(own)
+
+
 class Installer:
     def __init__(self, home: Path, uv: Path, progress: Progress, log: Path, runner=None, fetcher=None):
         self.home = home
@@ -159,6 +181,12 @@ class Installer:
 
     def install_comfy(self) -> None:
         self.progress.step(3, "Preparando Python…")
+        if self.comfy_venv.exists() and not uses_own_python(self.comfy_venv, self.home):
+            # Entorno creado con un Python ajeno a AIRE: se rehace (los paquetes ya están en caché)
+            comfyctl.stop(self.home)
+            shutil.rmtree(self.comfy_venv, ignore_errors=True)
+            self.cfg["comfy_env_ok"] = False
+            save_config(self.home, self.cfg)
         if self.cfg.get("comfy_env_ok"):
             return
         py = venv_python(self.comfy_venv)
@@ -193,6 +221,9 @@ class Installer:
         try:
             download(preset, self.comfy_dir, on_progress)
         except OSError as e:
+            if getattr(e, "errno", None) == 28 or getattr(e, "winerror", None) == 112:  # disco lleno
+                raise UserError("El disco se ha llenado durante la descarga. Libera espacio y pulsa "
+                                "«Continuar»: seguirá donde se quedó.") from e
             raise UserError("Se ha cortado la descarga del modelo. Vuelve a pulsar «Preparar AIRE»: "
                             "continuará donde se quedó.") from e
         self.cfg["models_ok"] = True
@@ -231,6 +262,10 @@ def main(argv: list[str] | None = None) -> None:
     args = ap.parse_args(argv)
 
     args.home.mkdir(parents=True, exist_ok=True)
+    # uv debe usar solo su propio Python, guardado dentro de la carpeta de AIRE
+    os.environ["UV_PYTHON_PREFERENCE"] = "only-managed"
+    os.environ.setdefault("UV_PYTHON_INSTALL_DIR", str(args.home / "python"))
+    os.environ.setdefault("UV_CACHE_DIR", str(args.home / "cache"))
     log = args.home / "logs" / "install.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     progress = Progress(args.progress or args.home / "progress" / "setup.json", STEPS)

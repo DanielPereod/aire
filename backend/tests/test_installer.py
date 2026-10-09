@@ -35,9 +35,12 @@ class Fakes:
     def runner(self, cmd, what):
         self.commands.append([str(c) for c in cmd])
         if cmd[1] == "venv":
-            py = inst.venv_python(Path(cmd[2]))
+            venv = Path(cmd[2])
+            py = inst.venv_python(venv)
             py.parent.mkdir(parents=True, exist_ok=True)
             py.write_text("")
+            home = venv.parent.parent  # AIRE/comfy/venv → AIRE
+            (venv / "pyvenv.cfg").write_text(f"home = {home / 'python' / 'cpython-3.12'}\nversion = 3.12\n")
 
     def fetcher(self, url, dest, on_bytes=None):
         self.fetched.append(url)
@@ -219,3 +222,48 @@ def test_packaged_extension_runs_job(tmp_path, fake_server):  # noqa: F811
     assert state["result"]["prompt"].startswith('con "comillas" y\nsaltos de línea, ñ')
     assert Path(state["result"]["images"][0]["thumb"]).exists()
     assert (tmp_path / "local" / "AIRE" / "cache" / "numba").exists()  # caché fuera de la extensión
+
+
+def test_progress_survives_locked_file_on_windows(tmp_path, monkeypatch):
+    """SketchUp lee setup.json cada segundo; en Windows os.replace falla con
+    «Acceso denegado» si coincide. Nunca debe tumbar la instalación."""
+    calls = {"n": 0}
+    real_replace = inst.os.replace
+
+    def flaky_replace(a, b):
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            raise PermissionError(5, "Acceso denegado")
+        real_replace(a, b)
+
+    monkeypatch.setattr("aire_backend.progress.os.replace", flaky_replace)
+    monkeypatch.setattr("aire_backend.progress.time.sleep", lambda s: None)
+    p = Progress(tmp_path / "setup.json", ["a", "b"])
+    p.step(1, "hola")
+    assert json.loads((tmp_path / "setup.json").read_text())["detail"] == "hola"
+
+    def always_locked(a, b):
+        raise PermissionError(5, "Acceso denegado")
+
+    monkeypatch.setattr("aire_backend.progress.os.replace", always_locked)
+    p.update("sigue", 50)  # escribe encima como último recurso
+    p.done({"ok": True})
+    assert json.loads((tmp_path / "setup.json").read_text())["state"] == "done"
+
+    monkeypatch.setattr("aire_backend.progress.Path.write_text", lambda *a, **k: (_ for _ in ()).throw(OSError("bloqueado")))
+    p.fail(UserError("x"))  # ni siquiera así lanza excepción
+
+
+def test_foreign_python_venv_is_rebuilt(env, monkeypatch):
+    """Un entorno creado con otro Python (p. ej. el de StabilityMatrix) se rehace."""
+    fakes = Fakes()
+    patch_model_download(monkeypatch, fakes)
+    venv = env / "comfy" / "venv"
+    inst.venv_python(venv).parent.mkdir(parents=True)
+    inst.venv_python(venv).write_text("")
+    (venv / "pyvenv.cfg").write_text("home = C:\\Users\\elesa\\Downloads\\StabilityMatrix-win-x64\\Data\\Assets\\Python\n")
+    (env / "config.json").write_text(json.dumps({"comfy_env_ok": True}))
+    assert not inst.uses_own_python(venv, env)
+    make(env, fakes)[0].install()
+    assert any(c[1] == "venv" for c in fakes.commands)
+    assert inst.uses_own_python(venv, env)

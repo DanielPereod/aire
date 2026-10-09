@@ -42,6 +42,25 @@ module Aire
       File.join(home, 'progress', 'setup.json')
     end
 
+    # ¿Sigue vivo el proceso? (sin abrir ventanas: WMI en Windows)
+    def process_alive?(pid)
+      pid = pid.to_i
+      return true if pid <= 0 # sin dato: no se puede saber, se asume que sí
+
+      if windows?
+        require 'win32ole'
+        wmi = WIN32OLE.connect('winmgmts://')
+        wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE ProcessId = #{pid}").Count.positive?
+      else
+        Process.kill(0, pid)
+        true
+      end
+    rescue Errno::ESRCH
+      false
+    rescue StandardError, LoadError
+      true
+    end
+
     def read_json(path)
       return nil unless File.exist?(path)
 

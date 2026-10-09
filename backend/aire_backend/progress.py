@@ -37,10 +37,24 @@ class Progress:
         self.state["updated"] = now
         if self.path is None:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.state, ensure_ascii=False), encoding="utf-8")
-        os.replace(tmp, self.path)
+        # Informar del progreso nunca debe tumbar la tarea. En Windows, os.replace falla
+        # con "Acceso denegado" si SketchUp está leyendo el fichero justo en ese momento:
+        # se reintenta y, si no hay suerte, se escribe encima o se deja para la próxima.
+        data = json.dumps(self.state, ensure_ascii=False)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(data, encoding="utf-8")
+            for attempt in range(20):
+                try:
+                    os.replace(tmp, self.path)
+                    return
+                except PermissionError:
+                    time.sleep(0.05 * (attempt + 1) if attempt < 5 else 0.25)
+            self.path.write_text(data, encoding="utf-8")
+        except OSError:
+            if force:
+                self._last_write = 0.0  # que el siguiente write lo vuelva a intentar
 
     def step(self, index: int, detail: str = "", percent: float | None = None) -> None:
         self.state.update(step=index, title=self.steps[index], detail=detail, percent=percent)
