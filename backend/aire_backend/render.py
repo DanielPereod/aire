@@ -29,7 +29,7 @@ from .fidelity import edge_map, load_lines, score
 from .passes import Passes, supersampled_shaded
 from .prompt import build_prompt
 from .scene import load_scene
-from .workflows import KleinSettings, ZImageSettings, flux2_klein_edit, zimage_control
+from .workflows import KleinSettings, QwenSettings, ZImageSettings, flux2_klein_edit, qwen21_edit, zimage_control
 
 
 def round16(x: float) -> int:
@@ -61,6 +61,8 @@ def sweep_grid(base: ZImageSettings) -> list[ZImageSettings]:
 
 
 def label(s) -> str:
+    if isinstance(s, QwenSettings):
+        return f"Qwen Image 2.1 · {s.width}×{s.height} · semilla {s.seed}" + (" · " + s.tag if s.tag else "")
     if isinstance(s, KleinSettings):
         size = f"{s.width}×{s.height}"
         return f"FLUX klein · {size} · semilla {s.seed}" + (" · " + s.tag if s.tag else "")
@@ -117,7 +119,9 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
         if on_each:
             on_each(i, len(runs))
         prefix = f"aire/{out_dir.name}_{i:02d}"
-        if isinstance(s, KleinSettings):
+        if isinstance(s, QwenSettings):
+            wf = qwen21_edit(s, init, prefix=prefix)
+        elif isinstance(s, KleinSettings):
             wf = flux2_klein_edit(s, init, prefix=prefix)
         else:
             wf = zimage_control(s, depth, lines, init, prefix=prefix)

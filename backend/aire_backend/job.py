@@ -22,33 +22,39 @@ from . import comfyctl, cycles_engine
 from .comfy import ComfyError
 from .installer import Installer
 from .progress import Progress, UserError
-from .models import download, missing_files
+from .models import adopt_existing, download, missing_files
 from .prompt import build_edit_prompt
 from .render import prepare_passes, run_renders
-from .workflows import KleinSettings
+from .workflows import KleinSettings, QwenSettings
 
 # width = tamaño final; upscale > 1 → 1.ª pasada a width/upscale y 2.ª pasada de detalle
 QUALITY = {
 # cycles: la imagen base es un render con luz real (Cycles) en vez de la sencilla
     "rapida": {"width": 1024, "steps": 4, "upscale": 1.0},
-    "alta": {"width": 1920, "steps": 4, "upscale": 1.5, "cycles": True, "photo": 1.0},
+    "alta": {"width": 1920, "steps": 4, "upscale": 1.5, "cycles": True, "photo": 1.0, "engine": "qwen21"},
     "comparar": {"width": 1920, "steps": 4, "upscale": 1.5, "sweep": True, "cycles": True, "photo": 1.0},
 }
 
 ENGINE_PRESET = "flux2-klein4b"
+SIZE_GB = {"flux2-klein4b": 4, "qwen21": 16}
 
-STEPS = ["Preparando la escena", "Descargando el modelo FLUX", "Calculando la luz real",
+STEPS = ["Preparando la escena", "Descargando el modelo", "Calculando la luz real",
          "Arrancando el motor", "Creando la imagen", "Terminando"]
 
 
 def ensure_models(cfg: dict, progress: Progress, preset: str = ENGINE_PRESET) -> None:
     """Descarga los ficheros del motor que falten (solo la primera vez)."""
     comfy_dir = Path(cfg["comfy_dir"])
+    if missing_files(preset, comfy_dir):
+        try:
+            adopt_existing(preset, comfy_dir)  # p. ej. los de otro ComfyUI del ordenador
+        except OSError:
+            pass
     todo = missing_files(preset, comfy_dir)
     if not todo:
         progress.step(1, "Ya descargado")
         return
-    progress.step(1, "Solo la primera vez: unos 4 GB", 0)
+    progress.step(1, f"Solo la primera vez: unos {SIZE_GB.get(preset, 4)} GB", 0)
 
     def on_progress(f, i, n, done, total):
         pct = 100 * done / total if total else None
@@ -57,7 +63,7 @@ def ensure_models(cfg: dict, progress: Progress, preset: str = ENGINE_PRESET) ->
     try:
         download(preset, comfy_dir, on_progress)
     except OSError as e:
-        raise UserError("Se ha cortado la descarga del modelo FLUX. Vuelve a pulsar «Crear imagen»: "
+        raise UserError("Se ha cortado la descarga del modelo. Vuelve a intentarlo: "
                         "seguirá donde se quedó.") from e
 
 
@@ -123,7 +129,8 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
 
     full_prompt = build_edit_prompt(passes.scene, a["ids"], a["material"], visible, prompt, style=style, light=light,
                                     albedo=a["albedo"])
-    ensure_models(cfg, progress)
+    engine = q.get("engine", ENGINE_PRESET)
+    ensure_models(cfg, progress, engine)
 
     if base_image is None and q.get("cycles"):
         base_image = light_pass(home, cfg, export, passes.width, light, progress)
@@ -137,6 +144,9 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
     base = KleinSettings(width=passes.width, height=passes.height, prompt=full_prompt, steps=q["steps"],
                          upscale=q["upscale"], color_lock=1.0 if base_image is not None else 0.0, photo=q.get("photo", 0.0),
                          seed=seed if seed is not None else random.randint(0, 2**31 - 1))
+    if engine == "qwen21":
+        base = QwenSettings(width=base.width, height=base.height, prompt=full_prompt, seed=base.seed,
+                            color_lock=base.color_lock, photo=base.photo)
     if q.get("sweep"):
         runs = klein_grid(base, with_light=base_image is not None)
     else:
@@ -160,7 +170,7 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
 
     progress.step(5)
     result = {"folder": str(out_dir), "prompt": full_prompt, "style": style, "light": light,
-              "quality": quality, "user_prompt": prompt, "engine": ENGINE_PRESET,
+              "quality": quality, "user_prompt": prompt, "engine": engine,
               "created": time.time(), "images": results}
     (out_dir / "result.json").write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     return result

@@ -52,8 +52,19 @@ OBJECT_INFO = {
     "SplitSigmasDenoise": {"input": {"required": {"sigmas": ["SIGMAS"], "denoise": ["FLOAT", {}]}}},
     "SamplerCustomAdvanced": {"input": {"required": {k: ["X"] for k in ("noise", "guider", "sampler", "sigmas", "latent_image")}}},
 }
-OBJECT_INFO["UNETLoader"]["input"]["required"]["unet_name"] = [["z_image_turbo_bf16.safetensors", "flux-2-klein-4b-fp8.safetensors"]]
-OBJECT_INFO["VAELoader"]["input"]["required"]["vae_name"] = [["ae.safetensors", "flux2-vae.safetensors"]]
+OBJECT_INFO["UNETLoader"]["input"]["required"]["unet_name"] = [["z_image_turbo_bf16.safetensors", "flux-2-klein-4b-fp8.safetensors",
+                                                                "qwen_image_2.1_int8_convrot.safetensors"]]
+OBJECT_INFO["VAELoader"]["input"]["required"]["vae_name"] = [["ae.safetensors", "flux2-vae.safetensors",
+                                                              "qwen_image_2.1_vae_bf16.safetensors"]]
+OBJECT_INFO["CLIPLoader"]["input"]["required"]["clip_name"] = [["qwen_3_4b.safetensors", "qwen3vl_8b_int8_convrot.safetensors"]]
+OBJECT_INFO["CLIPLoader"]["input"]["required"]["type"] = [["lumina2", "flux2", "qwen_image"]]
+# Nodos de Qwen Image 2.1 tal como los publica ComfyUI 0.39 (entradas de imagen dinámicas)
+OBJECT_INFO["QwenImage21Cache"] = {"input": {"required": {"model": ["MODEL"], "device": [["auto", "cpu"]],
+                                                          "dtype": [["default", "bf16"]]}}}
+OBJECT_INFO["TextEncodeQwenImage21"] = {"input": {
+    "required": {"clip": ["CLIP"], "prompt": ["STRING", {}], "negative_prompt": ["STRING", {}],
+                 "resolution": ["INT", {}]},
+    "optional": {"vae": ["VAE"], "images": ["COMFY_AUTOGROW_V3", {}]}}}
 
 
 def settings(**kw):
@@ -110,7 +121,7 @@ def test_prepare_passes_multiple_of_16(tmp_path):
 def test_model_catalog_and_recommendation():
     for p in PRESETS.values():
         assert all(f in FILES for f in p.files)
-    assert recommend(8.0) == {"render": "flux2-klein4b", "edit": "flux2-klein4b-edit"}
+    assert recommend(8.0) == {"render": "flux2-klein4b", "edit": "qwen21"}
     assert recommend(None) == {"render": None, "edit": None}
     assert recommend(24)["edit"] in ("flux2-dev-edit", "qwen2511-edit")
     assert weight_dtype_for(8.0) == "fp8_e4m3fn" and weight_dtype_for(24) == "default"

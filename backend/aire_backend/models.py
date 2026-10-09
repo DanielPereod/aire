@@ -53,6 +53,14 @@ FILES = {f.name: f for f in [
               "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"),
     ModelFile("qwen_image_vae.safetensors", "vae",
               "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors"),
+    # Qwen Image 2.1 en int8 (plantilla oficial «image_qwen_image_2_1_image_edit»): cabe en 8 GB
+    # descargando parte a la RAM; ~80 s por imagen en una RTX 5060
+    ModelFile("qwen_image_2.1_int8_convrot.safetensors", "diffusion_models",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors"),
+    ModelFile("qwen3vl_8b_int8_convrot.safetensors", "text_encoders",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors"),
+    ModelFile("qwen_image_2.1_vae_bf16.safetensors", "vae",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors"),
 ]}
 
 
@@ -69,6 +77,15 @@ class Preset:
 
 
 PRESETS = {p.id: p for p in [
+    Preset(
+        "qwen21", "Qwen Image 2.1 (máxima calidad)", "edit", 8,
+        ("qwen_image_2.1_int8_convrot.safetensors", "qwen3vl_8b_int8_convrot.safetensors",
+         "qwen_image_2.1_vae_bf16.safetensors"),
+        "ver la ficha del modelo en Hugging Face",
+        "Edición con varias imágenes de referencia. Unos 16 GB; con 8 GB de VRAM ComfyUI pasa parte "
+        "a la RAM (recomendado 32 GB).",
+        {"steps": 25, "cfg": 1.0, "sampler": "euler", "scheduler": "simple"},
+    ),
     Preset(
         "flux2-klein4b", "FLUX.2 [klein] 4B (fotorrealiza la imagen base del modelo)", "render", 8,
         ("flux-2-klein-4b-fp8.safetensors", "qwen_3_4b.safetensors", "flux2-vae.safetensors"),
@@ -128,6 +145,55 @@ def missing_files(preset_id: str, comfy_dir: Path) -> list[ModelFile]:
     return [FILES[n] for n in PRESETS[preset_id].files
             if not (comfy_dir / "models" / FILES[n].folder / n).is_file()
             or (comfy_dir / "models" / FILES[n].folder / n).stat().st_size == 0]
+
+
+def other_model_roots() -> list[Path]:
+    """Carpetas «models» de otros ComfyUI del ordenador (StabilityMatrix, ComfyUI Desktop,
+    portables): si ya tienen un fichero, se aprovecha en vez de descargarlo otra vez."""
+    import os
+    home = Path(os.environ.get("USERPROFILE") or Path.home())
+    patterns = [
+        (home / "Downloads", "StabilityMatrix*/Data/Packages/*/models"),
+        (home / "Descargas", "StabilityMatrix*/Data/Packages/*/models"),
+        (home, "StabilityMatrix*/Data/Packages/*/models"),
+        (Path(os.environ.get("APPDATA", home)), "StabilityMatrix/Packages/*/models"),
+        (home / "Documents", "ComfyUI/models"),
+        (home / "Documentos", "ComfyUI/models"),
+        (home / "Documents", "ComfyUI*/ComfyUI/models"),
+        (Path("C:/"), "ComfyUI*/ComfyUI/models"),
+        (Path("C:/"), "ComfyUI*/models"),
+    ]
+    roots = []
+    for base, pattern in patterns:
+        try:
+            roots += [p for p in base.glob(pattern) if p.is_dir()]
+        except OSError:
+            continue
+    return roots
+
+
+def adopt_existing(preset_id: str, comfy_dir: Path, roots: list[Path] | None = None) -> list[str]:
+    """Enlaza (o copia si no se puede) los ficheros del preset que ya estén en otro ComfyUI.
+    Un enlace duro no ocupa espacio extra ni tarda nada en el mismo disco."""
+    import os
+    import shutil
+    adopted = []
+    for f in missing_files(preset_id, comfy_dir):
+        for root in roots if roots is not None else other_model_roots():
+            src = root / f.folder / f.name
+            if not src.is_file() or src.stat().st_size == 0:
+                continue
+            dest = comfy_dir / "models" / f.folder / f.name
+            if dest.resolve() == src.resolve():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(src, dest)
+            except OSError:
+                shutil.copyfile(src, dest)
+            adopted.append(f.name)
+            break
+    return adopted
 
 
 def fetch(url: str, dest: Path, on_bytes=None, chunk: int = 1 << 22) -> None:

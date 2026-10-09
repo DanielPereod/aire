@@ -213,3 +213,48 @@ def zimage_control(s: ZImageSettings, depth_image: str, lines_image: str | None,
     image = g.add("VAEDecode", samples=g.out(sample), vae=g.out(vae))
     g.add("SaveImage", images=g.out(image), filename_prefix=prefix)
     return g.to_json()
+
+
+@dataclass
+class QwenSettings:
+    """Qwen Image 2.1 en modo edición (plantilla oficial «image_qwen_image_2_1_image_edit»).
+    La imagen 1 marca el lienzo: la salida sale de su tamaño (resolution=0, nativa)."""
+    width: int
+    height: int
+    prompt: str
+    seed: int = 0
+    steps: int = 25
+    cfg: float = 1.0
+    sampler: str = "euler"
+    scheduler: str = "simple"
+    negative: str = ""
+    resolution: int = 0  # 0 = tamaño nativo de la imagen 1; si no, presupuesto de píxeles (lado²)
+    unet: str = "qwen_image_2.1_int8_convrot.safetensors"
+    text_encoder: str = "qwen3vl_8b_int8_convrot.safetensors"
+    vae: str = "qwen_image_2.1_vae_bf16.safetensors"
+    color_lock: float = 0.0
+    photo: float = 0.0
+    tag: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def qwen21_edit(s: QwenSettings, image: str, extra_refs: tuple[str, ...] = (), prefix: str = "aire/render") -> dict:
+    """image (y las referencias) ya subidas a ComfyUI; image debe estar al tamaño final."""
+    g = Graph()
+    unet = g.add("UNETLoader", unet_name=s.unet, weight_dtype="default")
+    model = g.add("QwenImage21Cache", model=g.out(unet), device="auto", dtype="default")
+    clip = g.add("CLIPLoader", clip_name=s.text_encoder, type="qwen_image", device="default")
+    vae = g.add("VAELoader", vae_name=s.vae)
+    images = {}
+    for i, name in enumerate((image, *extra_refs), start=1):
+        images[f"images.image_{i}"] = g.out(g.add("LoadImage", image=name))
+    enc = g.add("TextEncodeQwenImage21", clip=g.out(clip), vae=g.out(vae), prompt=s.prompt,
+                negative_prompt=s.negative, resolution=s.resolution, **images)
+    out = g.add("KSampler", model=g.out(model), positive=g.out(enc, 0), negative=g.out(enc, 1),
+                latent_image=g.out(enc, 2), seed=s.seed, steps=s.steps, cfg=s.cfg, sampler_name=s.sampler,
+                scheduler=s.scheduler, denoise=1.0)
+    dec = g.add("VAEDecode", samples=g.out(out), vae=g.out(vae))
+    g.add("SaveImage", images=g.out(dec), filename_prefix=prefix)
+    return g.to_json()

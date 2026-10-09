@@ -23,15 +23,16 @@ from PIL import Image, ImageFilter
 
 from . import comfyctl
 from .comfy import ComfyError
-from .job import ENGINE_PRESET, ensure_models
+from .job import ensure_models
 from .photo import photo_finish
 from .progress import Progress, UserError
 from .render import round16, save_views
-from .workflows import KleinSettings, flux2_klein_edit
+from .workflows import KleinSettings, QwenSettings, flux2_klein_edit, qwen21_edit
 
 STEPS = ["Preparando la imagen", "Descargando el modelo", "Arrancando el motor", "Aplicando los cambios",
          "Terminando"]
 
+ENGINE = "qwen21"  # mejor con varias referencias; "flux2-klein4b" como alternativa rápida
 MAX_WIDTH = 1920  # tamaño máximo de trabajo (8 GB de VRAM)
 CROP_SIDE = 1024  # lado largo al que se trabaja un recorte
 
@@ -89,7 +90,7 @@ def fit_reference(path: Path, out: Path, side: int = 1024) -> Path:
 
 
 def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path | None, job_dir: Path,
-             seed: int | None, progress: Progress) -> dict:
+             seed: int | None, progress: Progress, engine: str = ENGINE) -> dict:
     cfg = json.loads((home / "config.json").read_text(encoding="utf-8"))
     if not cfg.get("ready"):
         raise UserError("AIRE todavía no está preparado. Pulsa «Preparar AIRE» primero.")
@@ -116,18 +117,26 @@ def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path 
     region.resize((w, h), Image.Resampling.LANCZOS).save(base_path)
     ref_paths = [fit_reference(r, work / f"ref_{i}.png") for i, r in enumerate(refs)]
 
-    ensure_models(cfg, progress)
+    ensure_models(cfg, progress, engine)
     progress.step(2, "Un momento…")
     client = comfyctl.ensure(home, cfg, on_wait=lambda s: progress.update(f"Arrancando el motor… {int(s)} s"))
 
-    progress.step(3, "Unos 30-60 s")
-    s = KleinSettings(width=w, height=h, prompt=edit_prompt(prompt, len(refs), box is not None),
-                      steps=4, upscale=upscale, seed=seed if seed is not None else random.randint(0, 2**31 - 1))
+    seed = seed if seed is not None else random.randint(0, 2**31 - 1)
+    text = edit_prompt(prompt, len(refs), box is not None)
     base = client.upload_image(base_path)
     uploaded = tuple(client.upload_image(p) for p in ref_paths)
+    prefix = f"aire/{job_dir.name}"
+    if engine == "qwen21":
+        progress.step(3, "Unos 1-2 minutos")
+        s = QwenSettings(width=w, height=h, prompt=text, seed=seed)
+        wf = qwen21_edit(s, base, uploaded, prefix=prefix)
+    else:
+        progress.step(3, "Unos 30-60 s")
+        s = KleinSettings(width=w, height=h, prompt=text, steps=4, upscale=upscale, seed=seed)
+        wf = flux2_klein_edit(s, base, uploaded, prefix=prefix)
     t0 = time.perf_counter()
     try:
-        out = client.run(flux2_klein_edit(s, base, uploaded, prefix=f"aire/{job_dir.name}"))
+        out = client.run(wf)
     except ComfyError as e:
         if "out of memory" in str(e).lower():
             raise UserError("La tarjeta gráfica se ha quedado sin memoria. Cierra otros programas y prueba "
@@ -158,7 +167,7 @@ def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path 
     info = {"folder": str(out_dir), "kind": "edit", "source": str(image), "user_prompt": prompt,
             "prompt": s.prompt, "references": len(refs), "masked": box is not None,
             "style": parent.get("style"), "light": parent.get("light"), "quality": parent.get("quality"),
-            "engine": ENGINE_PRESET, "created": time.time(), "images": [item]}
+            "engine": engine, "created": time.time(), "images": [item]}
     (out_dir / "result.json").write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
     return info
 
@@ -180,6 +189,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--ref", type=Path, action="append", default=[])
     ap.add_argument("--mask", type=Path, default=None)
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--engine", default=ENGINE, choices=["qwen21", "flux2-klein4b"])
     ap.add_argument("--progress", type=Path, required=True)
     args = ap.parse_args(argv)
 
@@ -189,7 +199,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.prompt_file:
         args.prompt = args.prompt_file.read_text(encoding="utf-8")
     try:
-        result = run_edit(args.home, args.image, args.prompt, args.ref, args.mask, args.job_dir, args.seed, progress)
+        result = run_edit(args.home, args.image, args.prompt, args.ref, args.mask, args.job_dir, args.seed, progress,
+                          args.engine)
     except BaseException as e:  # noqa: BLE001
         with open(log, "a", encoding="utf-8") as lf:
             lf.write(f"\n=== {time.ctime()} (edición)\n")

@@ -182,3 +182,12 @@ añadir hasta 3 imágenes de referencia. `edit.py` lo resuelve con el motor de e
 
 Cada edición es un trabajo nuevo (`jobs/<fecha>-cambio`) con `kind: edit` y `source`, así la
 galería la marca como «Editada» y el editor puede enseñar el «Antes».
+
+### Motor Qwen Image 2.1
+
+«Alta calidad» y las ediciones usan Qwen Image 2.1 en int8 (la plantilla oficial de ComfyUI
+`image_qwen_image_2_1_image_edit`, nodos nativos `TextEncodeQwenImage21` y `QwenImage21Cache`):
+unos 16 GB de modelos, que se descargan la primera vez o se enlazan si ya están en otro ComfyUI
+del ordenador (StabilityMatrix, ComfyUI Desktop…, `models.adopt_existing`). 25 pasos, cfg 1.
+La imagen 1 es el render de Cycles (o la imagen a editar) y marca el tamaño; las referencias van
+como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.

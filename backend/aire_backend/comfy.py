@@ -66,6 +66,8 @@ def validate(graph: dict, object_info: dict) -> list[str]:
             if name not in node["inputs"]:
                 problems.append(f"{ct}: falta la entrada obligatoria {name!r}")
         for name, value in node["inputs"].items():
+            if name not in spec and name.split(".")[0] in spec:
+                continue  # entrada dinámica («images.image_1» de una lista que crece)
             if name not in spec:
                 problems.append(f"{ct}: entrada desconocida {name!r}")
                 continue

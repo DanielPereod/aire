@@ -20,10 +20,11 @@ from tests.test_render import fake_server  # noqa: F401  (fixture)
 Usage = namedtuple("Usage", "total used free")
 
 
-def fake_models(tmp_path, preset="flux2-klein4b"):
-    """Carpeta de ComfyUI con los ficheros del preset ya «descargados»."""
+def fake_models(tmp_path, presets=("flux2-klein4b", "qwen21")):
+    """Carpeta de ComfyUI con los ficheros de los presets ya «descargados»."""
     comfy = tmp_path / "ComfyUI"
-    for name in PRESETS[preset].files:
+    presets = (presets,) if isinstance(presets, str) else presets
+    for name in {n for p in presets for n in PRESETS[p].files}:
         f = comfy / "models" / FILES[name].folder / name
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_bytes(b"x")
@@ -412,16 +413,44 @@ def test_compare_mode_makes_eight_labelled_variants(tmp_path, monkeypatch, fake_
     assert any("directo" in l for l in labels) and any("repaso 0.60" in l for l in labels)
 
 
-def test_high_quality_job_uses_two_passes(tmp_path, monkeypatch, fake_server):  # noqa: F811
+def test_high_quality_job_uses_qwen(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    from tests.test_render import FakeComfy
     home = tmp_path / "AIRE"
     home.mkdir()
     (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "comfy_dir": str(fake_models(tmp_path))}))
     monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
-    monkeypatch.setitem(jobmod.QUALITY, "alta", {**jobmod.QUALITY["alta"], "width": 480})
+    monkeypatch.setitem(jobmod.QUALITY, "alta", {**jobmod.QUALITY["alta"], "width": 480, "cycles": False})
+    export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
+    result = jobmod.run_job(home, export, "", "modelo", "dia", "alta", 1, Progress(None, jobmod.STEPS))
+    s = result["images"][0]["settings"]
+    assert s["width"] == 480 and s["steps"] == 25 and result["engine"] == "qwen21"
+    types = [n["class_type"] for n in FakeComfy.queued[-1].values()]
+    assert "TextEncodeQwenImage21" in types and "QwenImage21Cache" in types
+
+
+def test_klein_job_uses_two_passes(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    home = tmp_path / "AIRE"
+    home.mkdir()
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "comfy_dir": str(fake_models(tmp_path))}))
+    monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
+    alta = {k: v for k, v in jobmod.QUALITY["alta"].items() if k != "engine"}
+    monkeypatch.setitem(jobmod.QUALITY, "alta", {**alta, "width": 480, "cycles": False})
     export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
     result = jobmod.run_job(home, export, "", "modelo", "dia", "alta", 1, Progress(None, jobmod.STEPS))
     s = result["images"][0]["settings"]
     assert s["width"] == 480 and s["upscale"] == 1.5
+
+
+def test_models_found_in_another_comfyui_are_linked_not_downloaded(tmp_path):
+    from aire_backend.models import adopt_existing, missing_files
+    other = tmp_path / "StabilityMatrix" / "models"
+    for name in PRESETS["qwen21"].files:
+        f = other / FILES[name].folder / name
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"pesos")
+    comfy = tmp_path / "ComfyUI"
+    assert len(adopt_existing("qwen21", comfy, [other])) == 3
+    assert missing_files("qwen21", comfy) == []
 
 
 def test_high_quality_uses_cycles_render_as_base(tmp_path, monkeypatch, fake_server):  # noqa: F811
