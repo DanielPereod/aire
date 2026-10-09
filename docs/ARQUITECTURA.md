@@ -223,3 +223,4 @@ como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.
 - 0.11.4:
   - El sol se orienta también hacia huecos sin vidrio, como las puertas acristaladas modeladas sin cristal de «7788 cocina». Cuenta como iluminado todo rayo que sale de la escena sin chocar con nada opaco ni con el techo añadido.
   - Con sol orientado, el cielo pesa un 35 % menos, para que las sombras sean más profundas, y el día es algo más cálido.
+- 0.11.5: sol orientado más bajo (18° de día, 12° de tarde) y más dorado, buscando la luz rasante de las fotos de ejemplo.

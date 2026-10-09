@@ -726,7 +726,7 @@ def setup_daylight(scene: Scene, light: str, to_sun: np.ndarray | None = None) -
     if aimed and sun.energy:
         sun.energy = 6.5  # sol de foto de interiorismo: manchas nítidas y con contraste
     if aimed:
-        sun.color = (1.0, 0.88, 0.74)  # sol de media tarde, como en las fotos de interiorismo
+        sun.color = (1.0, 0.83, 0.64)  # sol bajo de media tarde, dorado, como en las fotos de interiorismo
     if light == "tarde":
         sun.color = (1.0, 0.72, 0.48)
         sun.energy = 3.0
@@ -1044,7 +1044,7 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     else:
         to_sun = None
         if aim:
-            found = aim_sun(scene, tris, bpy.context.scene.camera, 15.0 if light == "tarde" else 24.0,
+            found = aim_sun(scene, tris, bpy.context.scene.camera, 12.0 if light == "tarde" else 18.0,
                             sun_direction(scene))
             if found is not None:
                 to_sun, sun_lit = found
