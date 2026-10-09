@@ -45,7 +45,7 @@ def install(home: Path, uv: Path, run) -> None:
 
 
 def render(home: Path, export: Path, out: Path, width: int, light: str, samples: int = 256,
-           timeout: float = 1800, on_wait=None, library: Path | None = None) -> dict:
+           timeout: float = 1800, on_wait=None, library: Path | None = None, dof: bool = True) -> dict:
     """Renderiza con Cycles en un proceso aparte. Devuelve el JSON que escribe cycles_render.py."""
     backend = Path(__file__).resolve().parents[1]
     log = home / "logs" / "cycles.log"
@@ -54,6 +54,8 @@ def render(home: Path, export: Path, out: Path, width: int, light: str, samples:
            "--width", str(width), "--samples", str(samples), "--light", light]
     if library is not None:
         cmd += ["--library", str(library)]
+    if not dof:
+        cmd.append("--no-dof")
     env = {**os.environ, "PYTHONPATH": str(backend)}
     with open(log, "a", encoding="utf-8", errors="replace") as lf:
         lf.write(f"\n=== {time.ctime()}\n$ {' '.join(cmd)}\n")

@@ -1,6 +1,6 @@
 [project]
 name = "aire-backend"
-version = "0.11.1"
+version = "0.11.2"
 description = "Backend local del plugin AIRE (render IA para SketchUp)"
 requires-python = ">=3.10"
 dependencies = [

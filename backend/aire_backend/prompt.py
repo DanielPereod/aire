@@ -190,7 +190,7 @@ EDIT_KEEP = ("Turn this 3D render into a real photograph of the same interior. K
 # tejido, grifo y fregadero dorados en blanco, botes desaparecidos): se pide expresamente.
 EDIT_DETAIL = ("Preserve every small detail exactly as in the image: patterns with gaps keep their gaps, thin "
                "legs and frames stay thin, and handles, taps, sinks, jars, bottles, appliances and small "
-               "objects keep their shape, color, finish and number. Every surface keeps its own material and "
+               "objects keep their shape, color, finish and number; woven rattan or cane stays matte woven natural fibre, never glass or beads. Every surface keeps its own material and "
                "its exact color and tone: fabric stays the same fabric, wood stays wood and stone stays stone.")
 EDIT_LOOK = ("Make it look like a photograph by a professional interior photographer with a full-frame camera: "
              "physically correct light with soft shadows, contact shadows and ambient occlusion in corners, "

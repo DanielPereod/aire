@@ -207,3 +207,12 @@ como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.
 - **Exterior HDRI**: un jardín de Poly Haven visto solo por los rayos de cámara, normalizado por la mediana de su mitad inferior.
 - **«Alta calidad» con Qwen**: añade al prompt un estilo de foto de catálogo con sol rasante. Fue lo que más acercó el resultado a las fotos de ejemplo de Dani.
 - 0.11.1: profundidad de campo leve (f/5.6, enfocada a la mediana de distancia del tercio central; `--no-dof`); imperfecciones de brillo procedurales (manchas de ~20 cm y huellas de ~1 cm) en materiales sin rugosidad escaneada; hojas translúcidas; aberración cromática muy leve en el acabado de cámara.
+- 0.11.2 (tras probar en la cocina de Dani):
+  - El sol orientado tiene más fuerza (6,5) y los visillos dejan pasar un 40 % del sol directo, porque las manchas de sol salían difusas y grises.
+  - Los suelos con textura propia reciben un relieve escaneado suave.
+  - El jardín de la ventana se ve menos sobreexpuesto.
+  - Sin material de biblioteca para alfombras ni metales.
+  - La tela prefiere bouclé o lino.
+  - La base de Cycles de «Alta calidad» va sin desenfoque, porque con él la fidelidad bajaba de 0,94 a 0,70.
+  - «Sin IA» no prepara los pases de apoyo de la IA.
+  - El prompt pide que el ratán no se convierta en cristal.

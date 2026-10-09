@@ -47,17 +47,14 @@ KINDS = [
     Kind("marble", r"m[aá]rmol|marble|calacatta|carrara|travertin", ("marble",), ("marble_01",), 2.0, 0.5, 0.15),
     Kind("rattan", r"rat[aá]n|rattan|mimbre|wicker|rejilla|cane\b", ("wicker",), ("wicker_weave", "rattan_weave"),
          0.3, 0.3, 0.9),
-    Kind("rug", r"alfombra|rug\b|carpet|moqueta|yute|jute|sisal", ("carpet",), ("carpet", "jute_rug"), 1.0, 0.4, 0.8),
     Kind("leather", r"cuero|leather|\bpiel\b", ("leather",), ("leather_white", "brown_leather"), 0.6, 0.4, 0.5),
     Kind("fabric", r"tela|fabric|tejido|textil|lino|linen|algod|cotton|terciopelo|velvet|boucl|tapiz|upholst|sof[aá]\b",
-         ("fabric",), ("fabric_pattern_07", "fabric_pattern_05", "linen"), 0.5, 0.3, 0.7),
+         ("fabric",), ("wool_boucle", "rough_linen", "fabric_pattern_07"), 0.5, 0.3, 0.7),
     Kind("wood", r"nogal|walnut|roble|oak|madera|wood|fresno|\bash\b|haya|beech|teca|teak|pino|pine|chapa|veneer|cerezo",
          ("wood",), ("oak_veneer_01", "fine_grained_wood", "wood_table_001"), 2.0, 0.7, 0.4,
          ("floor", "bark", "log", "plank", "crate", "pallet", "rotten")),
     Kind("concrete", r"microcement|cemento|concrete|hormig|resin|resina|estuco|stucco",
          ("concrete",), ("concrete_floor_02", "concrete_wall_008"), 3.0, 0.5, 0.3),
-    Kind("metal", r"inox|stainless|acero|steel|chrom|cromad|alumin|metal|lat[oó]n|brass|bronce|cobre|copper|\boro\b",
-         ("metal", "brushed"), ("brushed_metal", "metal_plate"), 0.5, 0.0, 0.15),
     Kind("plaster", r"pintura|paint|pared|wall|yeso|plaster|techo|ceiling|gotel",
          ("plaster",), ("painted_plaster_wall", "white_plaster_02", "plastered_wall"), 2.0, 0.15, 0.35),
 ]
@@ -65,7 +62,11 @@ BY_KEY = {k.key: k for k in KINDS}
 # Cualquier superficie lisa sin tipo reconocido (paredes sin nombre, «Material1»…) se trata
 # como pintura: un relieve muy suave que quita el aspecto de plástico perfecto del 3D.
 FALLBACK = "plaster"
-SKIP = re.compile(r"planta|plant|hoja|leaf|foliage|vidrio|cristal|glass|ventana|window|espejo|mirror|cortina|curtain|visillo|azulejo|tile|"
+# Sin material escaneado que encaje en Poly Haven (pruebas 0.11: «alfombra» elegía una moqueta sucia
+# y «metal» una chapa pintada): se quedan con su textura o color y las imperfecciones procedurales.
+SKIP = re.compile(r"alfombra|\brug\b|carpet|moqueta|yute|jute|sisal|"
+                  r"inox|stainless|acero|steel|chrom|cromad|alumin|metal|lat[oó]n|brass|bronce|cobre|copper|"
+                  r"planta|plant|hoja|leaf|foliage|vidrio|cristal|glass|ventana|window|espejo|mirror|cortina|curtain|visillo|azulejo|tile|"
                   r"cer[aá]mic|ceramic|porcel", re.I)
 
 

@@ -99,6 +99,7 @@ def material_params(scene: Scene, mid: int, object_names: str) -> dict:
         k = matlib.kind_for(*names)
         if k is None and mid in FLOOR_MATERIALS:  # con textura propia solo añade relieve y brillo
             k = matlib.BY_KEY[floor_kind(info.get("color", [200, 200, 200]))]
+            p["floor"] = True
             p["roughness"] = 0.35 if k.key == "floor_stone" else 0.45  # suelo con algo de reflejo
         if k is None and not tex and p.get("metallic", 0) < 0.5:
             k = matlib.BY_KEY[matlib.FALLBACK]
@@ -218,10 +219,12 @@ def add_detail(nodes, links, bsdf, params: dict, has_texture: bool, base_color, 
         mul.inputs[1].default_value = params.get("roughness", 0.5) / max(info.get("mean_rough", 0.5), 0.05)
         links.new(img.outputs["Color"], mul.inputs[0])
         links.new(mul.outputs[0], bsdf.inputs["Roughness"])
-    if info.get("normal") and not has_texture and kind.normal > 0:
+    floor = key in ("floor_stone", "wood_floor") and params.get("floor")
+    if info.get("normal") and (not has_texture or floor) and kind.normal > 0:
         img = _lib_image(nodes, links, folder / info["normal"], coords, False)
         nm = nodes.new("ShaderNodeNormalMap")
-        nm.inputs["Strength"].default_value = kind.normal
+        # Sobre una textura propia, relieve suave (la veta escaneada no coincide con la del modelo)
+        nm.inputs["Strength"].default_value = kind.normal * (0.5 if has_texture else 1.0)
         links.new(img.outputs["Color"], nm.inputs["Color"])
         normal_in = nm.outputs["Normal"]
     if info.get("color") and not has_texture and kind.tint > 0 and base_color is not None:
@@ -331,7 +334,14 @@ def build_material(scene: Scene, mid: int, params: dict, name: str):
         mix.inputs["Fac"].default_value = 0.45
         links.new(bsdf.outputs[0], mix.inputs[1])
         links.new(transl.outputs[0], mix.inputs[2])
-        links.new(mix.outputs[0], out.inputs["Surface"])
+        # Un visillo real deja pasar parte del sol directo entre los hilos: sin esto las manchas de
+        # sol salían difusas y grises (pruebas 0.11 en la cocina de Dani)
+        see = nodes.new("ShaderNodeBsdfTransparent")
+        open_mix = nodes.new("ShaderNodeMixShader")
+        open_mix.inputs["Fac"].default_value = 0.4
+        links.new(mix.outputs[0], open_mix.inputs[1])
+        links.new(see.outputs[0], open_mix.inputs[2])
+        links.new(open_mix.outputs[0], out.inputs["Surface"])
     elif kind == "alpha":
         bsdf.inputs["Alpha"].default_value = params.get("alpha", 1.0)
     elif params.get("translucent"):
@@ -715,6 +725,8 @@ def setup_daylight(scene: Scene, light: str, to_sun: np.ndarray | None = None) -
     # Proporción sol/cielo realista: con el cielo físico a fuerza 1, unos 4-5 W/m² dan la
     # relación de luz típica (se calibra con la exposición automática al final).
     sun.energy = 4.0 if to_sun[2] > 0.05 else 0.0
+    if aimed and sun.energy:
+        sun.energy = 6.5  # sol de foto de interiorismo: manchas nítidas y con contraste
     if aimed:
         sun.color = (1.0, 0.88, 0.74)  # sol de media tarde, como en las fotos de interiorismo
     if light == "tarde":
@@ -818,7 +830,7 @@ def _hdri_view(nt, bg, path: Path, strength: float, sun_azimuth: float) -> None:
     env.image = img
     nt.links.new(rot.outputs["Vector"], env.inputs["Vector"])
     ext = N.new("ShaderNodeBackground")
-    ext.inputs["Strength"].default_value = 1.6 * strength / ref  # jardín claro, como en una foto
+    ext.inputs["Strength"].default_value = 1.0 * strength / ref  # jardín claro, como en una foto
     nt.links.new(env.outputs["Color"], ext.inputs["Color"])
     out = N.get("World Output")
     lp = N.new("ShaderNodeLightPath")

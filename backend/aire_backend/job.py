@@ -89,7 +89,7 @@ def material_library(home: Path, export: Path, progress: Progress) -> Path | Non
 
 
 def light_pass(home: Path, cfg: dict, export: Path, width: int, light: str, progress: Progress,
-               samples: int = 256) -> Path | None:
+               samples: int = 256, dof: bool = True) -> Path | None:
     """Render con luz real (Cycles) para usarlo como imagen base. Si algo falla, se sigue con
     la imagen base sencilla: la imagen sale igual, solo con menos realismo."""
     log = home / "logs" / "render.log"
@@ -109,7 +109,7 @@ def light_pass(home: Path, cfg: dict, export: Path, width: int, light: str, prog
         progress.update("Calculando sol, cielo y lámparas…")
         out = export.parent / "luz" / f"cycles_{light}.png"
         cycles_engine.render(home, export, out, width, light if light in ("dia", "tarde", "noche") else "dia",
-                             samples=samples, library=library,
+                             samples=samples, library=library, dof=dof,
                              on_wait=lambda s: progress.update(f"Calculando sol, cielo y lámparas… {int(s)} s"))
         return out
     except Exception as e:  # noqa: BLE001 - la luz real es una mejora, no un requisito
@@ -140,11 +140,11 @@ def klein_grid(base: KleinSettings, with_light: bool = False) -> list[KleinSetti
     return runs
 
 
-def render_without_ai(home: Path, cfg: dict, export: Path, passes, light: str, quality: str, prompt: str,
+def render_without_ai(home: Path, cfg: dict, export: Path, width: int, light: str, quality: str, prompt: str,
                       style: str, q: dict, progress: Progress) -> dict:
     """Solo luz real (Cycles) y acabado de cámara: sin modelo de IA ni ComfyUI."""
     progress.step(1, "No hace falta")
-    base = light_pass(home, cfg, export, passes.width, light, progress, samples=q.get("samples", 256))
+    base = light_pass(home, cfg, export, width, light, progress, samples=q.get("samples", 256))
     if base is None:
         raise UserError("No se ha podido calcular la luz real. Pulsa «Ver el registro técnico» para ver por qué.")
     progress.step(3, "No hace falta")
@@ -175,9 +175,9 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
     q = QUALITY.get(quality, QUALITY["alta"])
 
     progress.step(0, "Leyendo el modelo 3D (unos 30 s)…")
+    if not q.get("ai", True):  # sin IA no hacen falta los pases de apoyo de la IA (~30 s menos)
+        return render_without_ai(home, cfg, export, q["width"], light, quality, prompt, style, q, progress)
     passes, pdir = prepare_passes(str(export), q["width"])
-    if not q.get("ai", True):
-        return render_without_ai(home, cfg, export, passes, light, quality, prompt, style, q, progress)
     a = passes.arrays
     visible = passes.visible_objects()
 
@@ -187,7 +187,8 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
     ensure_models(cfg, progress, engine)
 
     if base_image is None and q.get("cycles"):
-        base_image = light_pass(home, cfg, export, passes.width, light, progress)
+        # Sin desenfoque en la base de la IA: con él la fidelidad bajaba de 0,94 a 0,70 (pruebas 0.11)
+        base_image = light_pass(home, cfg, export, passes.width, light, progress, dof=False)
     else:
         progress.step(2, "No hace falta")
 
