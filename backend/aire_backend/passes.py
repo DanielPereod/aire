@@ -91,7 +91,7 @@ class Passes:
             self.height = int(height)
             self.camera.aspect = self.width / self.height
         self.arrays: dict[str, np.ndarray] = {}
-        self._tex_cache: dict[Path, np.ndarray | None] = {}
+        self._tex_cache: dict[Path, list[np.ndarray] | None] = {}
 
     # ------------------------------------------------------------------ render
     def render(self) -> "Passes":
@@ -177,8 +177,12 @@ class Passes:
         return np.ascontiguousarray(planes), table
 
     def _albedo(self) -> np.ndarray:
+        """Color de cada píxel con texturas filtradas (mipmaps + bilineal). Sin filtrar, una
+        textura fina vista de lejos (suelo, piedra) se convierte en ruido de píxeles sueltos
+        que la IA interpreta como otro material (p. ej. terrazo)."""
         mat, uv = self.arrays["material"], self.arrays["uv"]
         out = np.full(mat.shape + (3,), 255, dtype=np.uint8)  # fondo blanco
+        fx, fy = _uv_footprint(uv, mat)
         for m in np.unique(mat):
             if m < 0:
                 continue
@@ -186,17 +190,17 @@ class Passes:
             sel = mat == m
             rgb = np.asarray(info.get("color", [200, 200, 200])[:3], dtype=np.uint8)
             tex = info.get("texture")
-            img = self._texture(tex["file"]) if tex else None
-            if img is None:
+            levels = self._texture(tex["file"]) if tex else None
+            if levels is None:
                 out[sel] = rgb
                 continue
-            th, tw = img.shape[:2]
-            u = np.mod(uv[sel, 0], 1.0)
-            v = np.mod(uv[sel, 1], 1.0)
-            # En SketchUp v = 0 es el borde inferior de la imagen
-            ix = np.clip((u * tw).astype(np.int64), 0, tw - 1)
-            iy = np.clip(((1.0 - v) * th).astype(np.int64), 0, th - 1)
-            out[sel] = img[iy, ix, :3]
+            th, tw = levels[0].shape[:2]
+            # Texeles que cubre un píxel → nivel de mipmap
+            rho = np.maximum(np.maximum(fx[sel, 0] * tw, fx[sel, 1] * th),
+                             np.maximum(fy[sel, 0] * tw, fy[sel, 1] * th))
+            rho = np.where(np.isfinite(rho), rho, 1.0)
+            lod = np.clip(np.log2(np.maximum(rho, 1.0)), 0.0, len(levels) - 1)
+            out[sel] = _sample_trilinear(levels, uv[sel, 0], uv[sel, 1], lod)
         return out
 
     def _shaded(self) -> np.ndarray:
@@ -222,11 +226,12 @@ class Passes:
         img[~valid] = 255
         return img
 
-    def _texture(self, rel: str) -> np.ndarray | None:
+    def _texture(self, rel: str) -> list[np.ndarray] | None:
+        """Pirámide de mipmaps de la textura (float32 lineal, nivel 0 = original)."""
         path = self.scene.root / rel
         if path not in self._tex_cache:
             try:
-                self._tex_cache[path] = np.asarray(Image.open(path).convert("RGB"))
+                self._tex_cache[path] = _mip_pyramid(Image.open(path).convert("RGB"))
             except (OSError, ValueError):
                 self._tex_cache[path] = None
         return self._tex_cache[path]
@@ -328,6 +333,73 @@ class Passes:
         }
         (out / "passes.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
         return out
+
+
+def supersampled_shaded(scene: Scene, width: int, height: int, factor: int = 2,
+                        section_keep: str = "auto") -> np.ndarray:
+    """Imagen base con antialiasing: se calcula a factor× la resolución y se reduce. Así los
+    detalles finos (patas, tejidos calados, tiradores, botes) llegan a la IA como formas
+    limpias y no como píxeles sueltos que acaba borrando o reinventando."""
+    hi = Passes(scene, width * factor, section_keep=section_keep, height=height * factor)
+    hi.render()
+    img = Image.fromarray(hi.arrays["shaded"])
+    return np.asarray(img.resize((width, height), Image.Resampling.BOX))
+
+
+def _uv_footprint(uv: np.ndarray, key: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """|Δu|, |Δv| entre píxeles vecinos en x y en y (H, W, 2). Se toma el menor de los dos
+    vecinos con el mismo material para no confundir un salto de cara con una textura lejana;
+    inf si no hay vecino comparable."""
+    def along(axis: int) -> np.ndarray:
+        d = np.abs(np.diff(uv, axis=axis))
+        same = (np.diff(key, axis=axis) == 0)[..., None]
+        d = np.where(same, d, np.inf)
+        pad_shape = list(d.shape)
+        pad_shape[axis] = 1
+        pad = np.full(pad_shape, np.inf, dtype=d.dtype)
+        return np.minimum(np.concatenate([d, pad], axis=axis), np.concatenate([pad, d], axis=axis))
+    return along(1), along(0)
+
+
+def _mip_pyramid(img: Image.Image) -> list[np.ndarray]:
+    lin = (np.asarray(img, dtype=np.float32) / 255.0) ** 2.2
+    levels = [lin]
+    while min(levels[-1].shape[:2]) > 1:
+        a = levels[-1]
+        h, w = max(1, a.shape[0] // 2), max(1, a.shape[1] // 2)
+        a = a[: h * 2 if a.shape[0] > 1 else 1, : w * 2 if a.shape[1] > 1 else 1]
+        a = a.reshape(h, a.shape[0] // h, w, a.shape[1] // w, 3).mean(axis=(1, 3))
+        levels.append(a.astype(np.float32))
+    return levels
+
+
+def _sample_bilinear(tex: np.ndarray, u: np.ndarray, v: np.ndarray) -> np.ndarray:
+    th, tw = tex.shape[:2]
+    # En SketchUp v = 0 es el borde inferior de la imagen; la textura se repite
+    x = np.mod(u, 1.0) * tw - 0.5
+    y = np.mod(1.0 - v, 1.0) * th - 0.5
+    x0, y0 = np.floor(x), np.floor(y)
+    ax, ay = (x - x0)[:, None], (y - y0)[:, None]
+    x0, y0 = x0.astype(np.int64) % tw, y0.astype(np.int64) % th
+    x1, y1 = (x0 + 1) % tw, (y0 + 1) % th
+    top = tex[y0, x0] * (1 - ax) + tex[y0, x1] * ax
+    bot = tex[y1, x0] * (1 - ax) + tex[y1, x1] * ax
+    return top * (1 - ay) + bot * ay
+
+
+def _sample_trilinear(levels: list[np.ndarray], u: np.ndarray, v: np.ndarray, lod: np.ndarray) -> np.ndarray:
+    """Color sRGB (uint8) mezclando los dos niveles de mipmap más cercanos."""
+    out = np.zeros((len(u), 3), dtype=np.float32)
+    base = np.floor(lod).astype(np.int64)
+    frac = (lod - base).astype(np.float32)
+    for lv in np.unique(base):
+        sel = base == lv
+        c = _sample_bilinear(levels[lv], u[sel], v[sel])
+        if lv + 1 < len(levels):
+            f = frac[sel, None]
+            c = c * (1 - f) + _sample_bilinear(levels[lv + 1], u[sel], v[sel]) * f
+        out[sel] = c
+    return (np.clip(out, 0.0, 1.0) ** (1 / 2.2) * 255).round().astype(np.uint8)
 
 
 def depth_control(depth: np.ndarray, valid: np.ndarray) -> np.ndarray:

@@ -47,6 +47,9 @@ OBJECT_INFO = {
     "KSamplerSelect": {"input": {"required": {"sampler_name": [["euler"]]}}},
     "Flux2Scheduler": {"input": {"required": {"steps": ["INT", {}], "width": ["INT", {}], "height": ["INT", {}]}}},
     "EmptyFlux2LatentImage": {"input": {"required": {"width": ["INT", {}], "height": ["INT", {}], "batch_size": ["INT", {}]}}},
+    "ImageScale": {"input": {"required": {"image": ["IMAGE"], "upscale_method": [["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]],
+                                          "width": ["INT", {}], "height": ["INT", {}], "crop": [["disabled", "center"]]}}},
+    "SplitSigmasDenoise": {"input": {"required": {"sigmas": ["SIGMAS"], "denoise": ["FLOAT", {}]}}},
     "SamplerCustomAdvanced": {"input": {"required": {k: ["X"] for k in ("noise", "guider", "sampler", "sigmas", "latent_image")}}},
 }
 OBJECT_INFO["UNETLoader"]["input"]["required"]["unet_name"] = [["z_image_turbo_bf16.safetensors", "flux-2-klein-4b-fp8.safetensors"]]
@@ -209,6 +212,29 @@ def test_klein_edit_workflow_structure():
     assert sched["inputs"] == {"steps": 4, "width": 1024, "height": 672}
 
 
+def test_klein_two_pass_workflow():
+    """Alta calidad: 1.ª pasada a ~1 MP con la base reducida y 2.ª pasada de detalle a tamaño
+    final que parte de la foto ampliada y usa la base completa como referencia."""
+    from aire_backend.workflows import KleinSettings, flux2_klein_edit
+    s = KleinSettings(width=1920, height=1376, prompt="p", seed=3, upscale=1.5, refine_denoise=0.4)
+    assert s.first_pass_size() == (1280, 912)
+    wf = flux2_klein_edit(s, "aire/shaded.png")
+    assert validate(wf, OBJECT_INFO) == []
+    by_type = lambda t: [n["inputs"] for n in wf.values() if n["class_type"] == t]  # noqa: E731
+    assert [(x["width"], x["height"]) for x in by_type("Flux2Scheduler")] == [(1280, 912), (1920, 1376)]
+    assert by_type("Flux2Scheduler")[1]["steps"] == 10 and by_type("SplitSigmasDenoise")[0]["denoise"] == 0.4
+    assert by_type("EmptyFlux2LatentImage")[0]["width"] == 1280
+    assert len(by_type("SamplerCustomAdvanced")) == 2 and len(by_type("LoadImage")) == 1
+    second = by_type("SamplerCustomAdvanced")[1]
+    assert second["sigmas"][1] == 1  # low_sigmas: solo los últimos pasos
+    assert wf[second["latent_image"][0]]["class_type"] == "VAEEncode"  # parte de la foto ampliada
+    assert len(by_type("ReferenceLatent")) == 4
+    # Sin ampliación: una sola pasada, como antes
+    single = flux2_klein_edit(KleinSettings(width=1024, height=736, prompt="p"), "aire/shaded.png")
+    assert [n["class_type"] for n in single.values()].count("SamplerCustomAdvanced") == 1
+    assert "ImageScale" not in [n["class_type"] for n in single.values()]
+
+
 @pytest.mark.skipif(not os.environ.get("AIRE_COMFY_URL"), reason="AIRE_COMFY_URL no definido")
 def test_real_comfy_accepts_klein_workflow(tmp_path):
     from aire_backend.workflows import KleinSettings, flux2_klein_edit
@@ -217,9 +243,10 @@ def test_real_comfy_accepts_klein_workflow(tmp_path):
     img = tmp_path / "x.png"
     Image.new("RGB", (64, 64)).save(img)
     name = client.upload_image(img)
-    wf = flux2_klein_edit(KleinSettings(width=512, height=512, prompt="test"), name)
-    assert validate(wf, client.object_info()) == []
-    req = urllib.request.Request(url + "/prompt", json.dumps({"prompt": wf}).encode(),
-                                 {"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as r:
-        assert json.loads(r.read())["node_errors"] == {}
+    for up in (1.0, 1.5):
+        wf = flux2_klein_edit(KleinSettings(width=768, height=512, prompt="test", upscale=up), name)
+        assert validate(wf, client.object_info()) == []
+        req = urllib.request.Request(url + "/prompt", json.dumps({"prompt": wf}).encode(),
+                                     {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as r:
+            assert json.loads(r.read())["node_errors"] == {}

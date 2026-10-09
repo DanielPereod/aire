@@ -46,6 +46,9 @@ class ZImageSettings:
 
 @dataclass
 class KleinSettings:
+    """width/height: tamaño final. Con upscale > 1 se crea primero a width/upscale (≈1 MP,
+    donde FLUX.2 klein respeta mejor la composición) y una segunda pasada a tamaño final
+    rehace el detalle fino partiendo de esa imagen ampliada («hires fix»)."""
     width: int
     height: int
     prompt: str
@@ -53,11 +56,20 @@ class KleinSettings:
     steps: int = 4
     cfg: float = 1.0
     sampler: str = "euler"
+    upscale: float = 1.0
+    refine_denoise: float = 0.4  # cuánto rehace la segunda pasada (0 = nada, 1 = todo)
+    refine_steps: int = 4
     unet: str = "flux-2-klein-4b-fp8.safetensors"
     text_encoder: str = "qwen_3_4b.safetensors"
     vae: str = "flux2-vae.safetensors"
     weight_dtype: str = "default"  # el fichero ya viene en FP8
     tag: str = ""  # etiqueta para comparar variantes
+
+    def first_pass_size(self) -> tuple[int, int]:
+        if self.upscale <= 1.0:
+            return self.width, self.height
+        return (max(16, int(round(self.width / self.upscale / 16)) * 16),
+                max(16, int(round(self.height / self.upscale / 16)) * 16))
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -66,28 +78,53 @@ class KleinSettings:
 def flux2_klein_edit(s: KleinSettings, base_image: str, extra_refs: tuple[str, ...] = (),
                      prefix: str = "aire/render") -> dict:
     """FLUX.2 [klein] en modo edición (estructura del flujo oficial «Image Edit 4B distilled»):
-    la imagen base del modelo entra como referencia y el texto pide fotorrealizarla."""
+    la imagen base del modelo entra como referencia y el texto pide fotorrealizarla.
+
+    base_image debe estar al tamaño final (s.width × s.height)."""
     g = Graph()
     unet = g.add("UNETLoader", unet_name=s.unet, weight_dtype=s.weight_dtype)
     clip = g.add("CLIPLoader", clip_name=s.text_encoder, type="flux2", device="default")
     vae = g.add("VAELoader", vae_name=s.vae)
-
-    pos = g.add("CLIPTextEncode", text=s.prompt, clip=g.out(clip))
-    neg = g.add("ConditioningZeroOut", conditioning=g.out(pos))
-    for ref in (base_image, *extra_refs):
-        img = g.add("LoadImage", image=ref)
-        lat = g.add("VAEEncode", pixels=g.out(img), vae=g.out(vae))
-        pos = g.add("ReferenceLatent", conditioning=g.out(pos), latent=g.out(lat))
-        neg = g.add("ReferenceLatent", conditioning=g.out(neg), latent=g.out(lat))
-
-    guider = g.add("CFGGuider", model=g.out(unet), positive=g.out(pos), negative=g.out(neg), cfg=s.cfg)
-    noise = g.add("RandomNoise", noise_seed=s.seed)
+    text = g.add("CLIPTextEncode", text=s.prompt, clip=g.out(clip))
     sampler = g.add("KSamplerSelect", sampler_name=s.sampler)
-    sigmas = g.add("Flux2Scheduler", steps=s.steps, width=s.width, height=s.height)
-    latent = g.add("EmptyFlux2LatentImage", width=s.width, height=s.height, batch_size=1)
+    base = g.add("LoadImage", image=base_image)
+    extras = [g.add("LoadImage", image=r) for r in extra_refs]
+
+    def conditioned(images: list) -> str:
+        pos, neg = text, g.add("ConditioningZeroOut", conditioning=g.out(text))
+        for img in images:
+            lat = g.add("VAEEncode", pixels=g.out(img), vae=g.out(vae))
+            pos = g.add("ReferenceLatent", conditioning=g.out(pos), latent=g.out(lat))
+            neg = g.add("ReferenceLatent", conditioning=g.out(neg), latent=g.out(lat))
+        return g.add("CFGGuider", model=g.out(unet), positive=g.out(pos), negative=g.out(neg), cfg=s.cfg)
+
+    # 1.ª pasada: imagen completa desde ruido, con la imagen base (reducida) como referencia
+    w1, h1 = s.first_pass_size()
+    ref1 = base
+    if (w1, h1) != (s.width, s.height):
+        ref1 = g.add("ImageScale", image=g.out(base), upscale_method="area", width=w1, height=h1, crop="disabled")
+    guider = conditioned([ref1, *extras])
+    noise = g.add("RandomNoise", noise_seed=s.seed)
+    sigmas = g.add("Flux2Scheduler", steps=s.steps, width=w1, height=h1)
+    latent = g.add("EmptyFlux2LatentImage", width=w1, height=h1, batch_size=1)
     out = g.add("SamplerCustomAdvanced", noise=g.out(noise), guider=g.out(guider), sampler=g.out(sampler),
                 sigmas=g.out(sigmas), latent_image=g.out(latent))
     image = g.add("VAEDecode", samples=g.out(out), vae=g.out(vae))
+
+    if (w1, h1) != (s.width, s.height):
+        # 2.ª pasada: amplía la foto y rehace solo los últimos pasos (detalle fino) con la
+        # imagen base a tamaño completo como referencia, para recuperar lo pequeño.
+        big = g.add("ImageScale", image=g.out(image), upscale_method="lanczos", width=s.width,
+                    height=s.height, crop="disabled")
+        init = g.add("VAEEncode", pixels=g.out(big), vae=g.out(vae))
+        guider2 = conditioned([base, *extras])
+        total = max(s.refine_steps, round(s.refine_steps / max(s.refine_denoise, 0.05)))
+        sig2 = g.add("Flux2Scheduler", steps=total, width=s.width, height=s.height)
+        split = g.add("SplitSigmasDenoise", sigmas=g.out(sig2), denoise=s.refine_denoise)
+        noise2 = g.add("RandomNoise", noise_seed=s.seed + 1)
+        out2 = g.add("SamplerCustomAdvanced", noise=g.out(noise2), guider=g.out(guider2), sampler=g.out(sampler),
+                     sigmas=g.out(split, 1), latent_image=g.out(init))
+        image = g.add("VAEDecode", samples=g.out(out2), vae=g.out(vae))
     g.add("SaveImage", images=g.out(image), filename_prefix=prefix)
     return g.to_json()
 

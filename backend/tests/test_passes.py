@@ -167,3 +167,19 @@ def test_section_plane_hides_camera_side(tmp_path):
     # El plano vale -1.5 en el ojo → "negative" conserva el lado de la cámara
     keep_cam = Passes(scene, section_keep="negative").render().arrays["ids"]
     assert keep_cam[50, 50] == wall
+
+
+def test_fine_texture_is_filtered_not_noise(tmp_path):
+    """Una textura fina vista de lejos debe dar su color medio, no píxeles sueltos (la IA los
+    tomaba por otro material, p. ej. terrazo)."""
+    from PIL import Image
+    from aire_backend.render import prepare_passes
+    export = build_interior(tmp_path / "export")
+    checker = ((np.indices((512, 512)).sum(axis=0) % 2) * 255).astype(np.uint8)
+    Image.fromarray(np.stack([checker] * 3, axis=-1)).save(export / "textures" / "tarima.png")
+    passes, pdir = prepare_passes(str(export), 320)
+    floor = passes.arrays["material"] == passes.arrays["material"][-1, passes.width // 2]
+    shaded = np.asarray(Image.open(pdir / "shaded.png").convert("L"), dtype=np.float32)
+    assert floor.sum() > 1000
+    assert passes.arrays["albedo"][floor].std() < 20  # gris uniforme, no blanco/negro
+    assert shaded[floor].std() < 25

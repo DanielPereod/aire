@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw
 
 from .comfy import ComfyClient, ComfyError
 from .fidelity import load_lines, score
-from .passes import Passes
+from .passes import Passes, supersampled_shaded
 from .prompt import build_prompt
 from .scene import load_scene
 from .workflows import KleinSettings, ZImageSettings, flux2_klein_edit, zimage_control
@@ -34,12 +34,16 @@ def round16(x: float) -> int:
     return max(16, int(round(x / 16.0)) * 16)
 
 
-def prepare_passes(export_dir: str, width: int, section_keep: str = "auto") -> tuple[Passes, Path]:
+def prepare_passes(export_dir: str, width: int, section_keep: str = "auto",
+                   supersample: int = 2) -> tuple[Passes, Path]:
+    """supersample: antialiasing de la imagen base (shaded.png); 1 = sin él."""
     scene = load_scene(export_dir)
     probe = Passes(scene, width, section_keep=section_keep)
     w = round16(width)
     h = round16(w / probe.camera.aspect)
     passes = Passes(scene, w, section_keep=section_keep, height=h).render()
+    if supersample > 1:
+        passes.arrays["shaded"] = supersampled_shaded(scene, w, h, supersample, section_keep)
     out = passes.save(scene.root / f"passes_{w}x{h}")
     return passes, out
 
@@ -56,7 +60,8 @@ def sweep_grid(base: ZImageSettings) -> list[ZImageSettings]:
 
 def label(s) -> str:
     if isinstance(s, KleinSettings):
-        return f"FLUX klein · {s.steps} pasos · semilla {s.seed}" + (" · " + s.tag if getattr(s, "tag", "") else "")
+        size = f"{s.width}×{s.height}"
+        return f"FLUX klein · {size} · semilla {s.seed}" + (" · " + s.tag if s.tag else "")
     text = f"depth {s.depth_strength:.2f} · lines {s.lines_strength:.2f} · denoise {s.denoise:.2f}"
     return text + (f" · refine {s.refine:.2f}" if s.refine else "")
 

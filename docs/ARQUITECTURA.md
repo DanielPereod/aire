@@ -17,7 +17,7 @@ captura de pantalla.
 | Motor local | **ComfyUI** en modo servidor, controlado por el backend |
 | Usuario final | Persona **no técnica**: solo instala el `.rbz`; todo lo demás, desde la ventana de AIRE |
 
-## Motor de render actual (v0.6): FLUX.2 [klein] 4B en modo edición
+## Motor de render actual (v0.7): FLUX.2 [klein] 4B en modo edición
 
 Lecciones de las pruebas reales con el modelo de la usuaria (cocina):
 - Z-Image + ControlNet desde ruido, controles fuertes → respeta la geometría pero parece un
@@ -30,6 +30,20 @@ Ahora: `shaded.png` (materiales y texturas reales del modelo + luz sencilla) ent
 instrucción de convertirla en fotografía sin añadir, quitar ni mover nada. Los modelos de
 edición están entrenados para conservar lo que no se pide cambiar. El modelo se descarga
 en el primer render (~4 GB) si la instalación era anterior.
+
+Cambios de la 0.7 tras las primeras imágenes con FLUX (detalle perdido, poco realismo,
+1024 px):
+- **Imagen base limpia.** `shaded.png` se calcula al doble de resolución y se reduce
+  (antialiasing), y las texturas se filtran con mipmaps. Antes una textura fina vista de
+  lejos salía como píxeles blancos y negros sueltos (la IA hizo terrazo del suelo) y los
+  detalles finos (sillas caladas, grifo, botes) llegaban rotos y se perdían.
+- **Dos pasadas en «Alta calidad»**: 1280 px (≈1 MP, donde klein respeta mejor la
+  composición) y luego ampliación a 1920 px con una segunda pasada que rehace solo los
+  últimos pasos (repaso 0,4) con la imagen base a tamaño completo como referencia. Cabe en
+  8 GB (≈20 000 tokens en la segunda pasada).
+- **Instrucción** que pide conservar expresamente lo pequeño (calados, patas finas,
+  tiradores, grifos, botes) y cada acabado, y un aspecto de fotografía real.
+- «Comparar» ahora compara directo a 1920 frente a dos pasadas con repaso 0,3/0,45/0,6.
 
 ## Idea central: G-buffer exacto desde el modelo
 

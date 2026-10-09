@@ -26,10 +26,11 @@ from .prompt import build_edit_prompt
 from .render import prepare_passes, run_renders
 from .workflows import KleinSettings
 
+# width = tamaño final; upscale > 1 → 1.ª pasada a width/upscale y 2.ª pasada de detalle
 QUALITY = {
-    "rapida": {"width": 1024, "steps": 4},
-    "alta": {"width": 1536, "steps": 4},
-    "comparar": {"width": 1024, "steps": 4, "sweep": True},
+    "rapida": {"width": 1024, "steps": 4, "upscale": 1.0},
+    "alta": {"width": 1920, "steps": 4, "upscale": 1.5},
+    "comparar": {"width": 1920, "steps": 4, "upscale": 1.5, "sweep": True},
 }
 
 ENGINE_PRESET = "flux2-klein4b"
@@ -58,15 +59,16 @@ def ensure_models(cfg: dict, progress: Progress, preset: str = ENGINE_PRESET) ->
                         "seguirá donde se quedó.") from e
 
 
-def klein_grid(base: KleinSettings, scene_prompt) -> list[KleinSettings]:
-    """8 variantes para comparar: instrucción estricta / con algo de atrezo, 4 / 8 pasos, 2 semillas."""
+def klein_grid(base: KleinSettings) -> list[KleinSettings]:
+    """8 variantes para comparar (2 semillas): directo a tamaño final frente a dos pasadas
+    con distinta fuerza de repaso. Más repaso = más detalle y realismo, pero más riesgo de
+    que cambie algo pequeño."""
     runs = []
-    for creative in (False, True):
-        prompt = scene_prompt(creative)
-        for steps in (4, 8):
-            for k in range(2):
-                tag = ("con atrezo" if creative else "estricto")
-                runs.append(replace(base, prompt=prompt, steps=steps, seed=base.seed + k, tag=tag))
+    for k in range(2):
+        seed = base.seed + k
+        runs.append(replace(base, seed=seed, upscale=1.0, tag="directo a tamaño final"))
+        for d in (0.3, 0.45, 0.6):
+            runs.append(replace(base, seed=seed, refine_denoise=d, tag=f"2 pasadas · repaso {d:.2f}"))
     return runs
 
 
@@ -82,11 +84,7 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
     a = passes.arrays
     visible = passes.visible_objects()
 
-    def scene_prompt(creative: bool = False) -> str:
-        return build_edit_prompt(passes.scene, a["ids"], a["material"], visible, prompt,
-                                 style=style, light=light, creative=creative)
-
-    full_prompt = scene_prompt()
+    full_prompt = build_edit_prompt(passes.scene, a["ids"], a["material"], visible, prompt, style=style, light=light)
     ensure_models(cfg, progress)
 
     progress.step(2, "Un momento…")
@@ -94,9 +92,9 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
         f"Arrancando el motor… {int(s)} s (la primera vez tras encender el ordenador tarda más)"))
 
     base = KleinSettings(width=passes.width, height=passes.height, prompt=full_prompt, steps=q["steps"],
-                         seed=seed if seed is not None else random.randint(0, 2**31 - 1))
+                         upscale=q["upscale"], seed=seed if seed is not None else random.randint(0, 2**31 - 1))
     if q.get("sweep"):
-        runs = klein_grid(base, scene_prompt)
+        runs = klein_grid(base)
     else:
         runs = [replace(base, seed=base.seed + i) for i in range(max(1, variants))]
 

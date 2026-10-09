@@ -92,16 +92,24 @@ def build_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: l
 EDIT_KEEP = ("Turn this 3D render into a real photograph of the same interior. Keep exactly the same camera "
              "angle, room layout, furniture, objects, shapes, materials, colors and textures: do not add, "
              "remove, move or replace anything.")
-EDIT_LOOK = ("Make it look like professional interior design photography: realistic lighting with soft natural "
-             "shadows and contact shadows, subtle reflections on glossy surfaces, fine material detail (wood "
-             "grain, stone veining, fabric weave), natural colors, no outlines, sharp focus.")
+# Lo pequeño es lo primero que se pierde (pruebas 0.6: sillas caladas convertidas en punto
+# tejido, grifo y fregadero dorados en blanco, botes desaparecidos): se pide expresamente.
+EDIT_DETAIL = ("Preserve every small detail exactly as in the image: open or woven patterns keep their gaps "
+               "and shape, thin legs and frames stay thin, and handles, taps, sinks, jars, bottles and small "
+               "decorative objects keep their shape, color, metal finish and number. Each surface keeps its "
+               "own finish (for example a smooth floor stays smooth).")
+EDIT_LOOK = ("Make it look like a photograph by a professional interior photographer with a full-frame camera: "
+             "physically correct light with soft shadows, contact shadows and ambient occlusion in corners, "
+             "light falling off naturally across the room, true-to-life reflections on glossy and metal "
+             "surfaces, realistic material texture at full resolution, natural colors, subtle real-world "
+             "imperfections, no CGI look, no outlines, sharp focus.")
 EDIT_CREATIVE = ("You may add a few small decorative props (plants, books, ceramics) that fit the scene, but keep "
                  "all existing furniture and finishes unchanged.")
 
 
 def build_edit_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: list[dict],
                       user: str = "", style: str = "", light: str | None = None, creative: bool = False) -> str:
-    parts = [EDIT_KEEP, EDIT_LOOK]
+    parts = [EDIT_KEEP, EDIT_DETAIL, EDIT_LOOK]
     items = scene_items(scene, ids, material, visible)
     if items:
         parts.append("Materials in the scene: " + ", ".join(items) + ".")

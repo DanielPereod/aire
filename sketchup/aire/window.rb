@@ -11,7 +11,7 @@ module Aire
   # preparar AIRE una vez, elegir estilo y luz, y pulsar "Renderizar esta vista".
   class Window
     STALE_SECONDS = 15 * 60 # sin noticias de una tarea en marcha = se interrumpió
-    WIDTHS = { 'rapida' => 1024, 'alta' => 1536, 'comparar' => 1024 }.freeze
+    WIDTHS = { 'rapida' => 1024, 'alta' => 1920, 'comparar' => 1920 }.freeze
 
     def self.show
       @instance ||= new

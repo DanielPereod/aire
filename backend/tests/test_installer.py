@@ -408,4 +408,16 @@ def test_compare_mode_makes_eight_labelled_variants(tmp_path, monkeypatch, fake_
                             Progress(None, jobmod.STEPS))
     labels = [img["label"] for img in result["images"]]
     assert len(labels) == 8 and len(set(labels)) == 8
-    assert any("con atrezo" in l for l in labels) and any("8 pasos" in l for l in labels)
+    assert any("directo" in l for l in labels) and any("repaso 0.60" in l for l in labels)
+
+
+def test_high_quality_job_uses_two_passes(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    home = tmp_path / "AIRE"
+    home.mkdir()
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "comfy_dir": str(fake_models(tmp_path))}))
+    monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
+    monkeypatch.setitem(jobmod.QUALITY, "alta", {**jobmod.QUALITY["alta"], "width": 480})
+    export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
+    result = jobmod.run_job(home, export, "", "modelo", "dia", "alta", 1, Progress(None, jobmod.STEPS))
+    s = result["images"][0]["settings"]
+    assert s["width"] == 480 and s["upscale"] == 1.5

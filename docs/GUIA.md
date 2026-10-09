@@ -27,7 +27,7 @@ modelado (paredes, muebles, materiales) y le añade luz, texturas y ambiente.
    - **Luz**: de día, atardecer o de noche.
    - **¿Algo más?**: escribe lo que quieras añadir, por ejemplo «plantas y una
      alfombra de yute».
-   - **Calidad**: «Rápida» para probar ideas, «Alta calidad» para la imagen final.
+   - **Calidad**: «Rápida» (1024 px) para probar ideas, «Alta calidad» (1920 px, tarda algo más) para la imagen final.
 3. Pulsa **Crear imagen de esta vista** y espera (normalmente menos de un minuto
    por imagen).
 4. La imagen aparece en **Tus imágenes**: **Ver grande** la abre y **Guardar…**
