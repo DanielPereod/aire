@@ -66,7 +66,9 @@ plana tenía que inventarse la luz y, de paso, cambiaba materiales según la sem
 
 Cycles nivela la cámara y desplaza el encuadre (perspectiva de dos puntos, `camera.level_view`)
 para que las verticales salgan rectas como en una foto de interiorismo, si la vista de SketchUp
-está inclinada hasta 40°. En las lámparas, una textura de rejilla o con huecos se describe como
+está inclinada hasta 40°. Si la cámara está dentro de una habitación modelada sin techo (`room.ceiling_height`: rayos
+hacia arriba que no chocan con nada), Cycles añade un techo blanco a la altura de las paredes;
+si la vista es desde encima de las paredes, no. En las lámparas, una textura de rejilla o con huecos se describe como
 ratán aunque el material se llame «tela».
 
 Si Cycles no está o falla, «Alta calidad» sigue con la imagen base sencilla (se anota en

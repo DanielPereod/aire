@@ -353,3 +353,25 @@ def test_level_view_straightens_verticals():
     level = Camera(eye=np.zeros(3), target=np.array([0.0, 1.0, 0.0]), up=np.array([0.0, 0.0, 1.0]),
                    perspective=True, vfov=1.0, ortho_height=1.0, aspect=1.5)
     assert level_view(level) is None
+
+
+def _box_room(ceiling: bool):
+    import numpy as np
+    W, D, H = 4.0, 3.0, 2.6
+    quads = [((0, 0, 0), (W, 0, 0), (W, 0, H), (0, 0, H)), ((0, D, 0), (W, D, 0), (W, D, H), (0, D, H)),
+             ((0, 0, 0), (0, D, 0), (0, D, H), (0, 0, H)), ((W, 0, 0), (W, D, 0), (W, D, H), (W, 0, H)),
+             ((0, 0, 0), (W, 0, 0), (W, D, 0), (0, D, 0))]
+    if ceiling:
+        quads.append(((0, 0, H), (W, 0, H), (W, D, H), (0, D, H)))
+    tris = []
+    for a, b, c, d in quads:
+        tris += [(a, b, c), (a, c, d)]
+    return np.array(tris, dtype=float)
+
+
+def test_ceiling_added_only_when_missing_and_camera_inside():
+    from aire_backend.room import ceiling_height
+    eye = (2.0, 0.5, 1.4)
+    assert abs(ceiling_height(_box_room(False), eye) - 2.6) < 1e-6
+    assert ceiling_height(_box_room(True), eye) is None
+    assert ceiling_height(_box_room(False), (2.0, -3.0, 5.0)) is None  # vista desde arriba

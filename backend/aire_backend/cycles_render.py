@@ -30,6 +30,7 @@ from mathutils import Matrix  # noqa: E402
 import numpy as np  # noqa: E402
 
 from aire_backend.camera import Camera, level_view  # noqa: E402
+from aire_backend.room import ceiling_height  # noqa: E402
 from aire_backend.scene import Scene, load_scene  # noqa: E402
 
 # --------------------------------------------------------------------------- materiales
@@ -543,6 +544,27 @@ def setup_night() -> None:
     bpy.context.scene.world = world
 
 
+def add_ceiling(scene: Scene, tris: np.ndarray, eye: np.ndarray) -> float | None:
+    """Techo blanco mate si la cámara está en una habitación modelada sin él."""
+    pos = scene.positions[tris].astype(np.float64)
+    z = ceiling_height(pos, eye)
+    if z is None:
+        return None
+    near = np.linalg.norm(pos.mean(axis=1)[:, :2] - eye[:2], axis=1) < 15.0
+    pts = pos[near].reshape(-1, 3)
+    (x0, y0), (x1, y1) = pts[:, :2].min(axis=0) - 0.05, pts[:, :2].max(axis=0) + 0.05
+    mesh = bpy.data.meshes.new("techo")
+    mesh.from_pydata([(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)], [], [(0, 3, 2, 1)])
+    mat = bpy.data.materials.new("techo")
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Base Color"].default_value = (0.8, 0.8, 0.78, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.9
+    mesh.materials.append(mat)
+    obj = bpy.data.objects.new("techo", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    return round(z, 2)
+
+
 def add_portals(scene: Scene, glass_groups: list[list[int]], eye: np.ndarray) -> int:
     """Un portal de luz por ventana (rectángulo en el plano del cristal, mirando hacia
     dentro): Cycles muestrea el cielo a través de ellos y el interior sale sin ruido."""
@@ -679,6 +701,7 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     _, glass = build_meshes(scene, tris)
     w, h = setup_camera(scene, width, level)
     eye = Camera.from_scene(scene.camera, scene.view).eye
+    ceiling = add_ceiling(scene, tris, eye)
     lamps = 0
     if light == "noche":
         setup_night()
@@ -712,7 +735,7 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     bs.render.image_settings.color_management = "FOLLOW_SCENE"
     img.save_render(str(out), scene=bs)
     info = {"out": str(out), "exr": str(exr), "width": w, "height": h, "samples": samples, "light": light,
-            "device": used, "portals": portals, "lamps": lamps, "exposure": round(ev, 2),
+            "device": used, "portals": portals, "lamps": lamps, "ceiling_added": ceiling, "exposure": round(ev, 2),
             "seconds_setup": round(t1 - t0, 1), "seconds_render": round(t2 - t1, 1)}
     out.with_suffix(".json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     return info
