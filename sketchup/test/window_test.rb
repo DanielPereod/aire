@@ -137,6 +137,39 @@ class WindowTest < Minitest::Test
     Aire::Env.define_singleton_method(:process_alive?, original) if original
   end
 
+  def test_users_case_running_setup_with_dead_process
+    # El estado real del PC de pruebas: instalación «en marcha» cuyo proceso murió
+    file = Aire::Env.setup_progress_file
+    FileUtils.mkdir_p(File.dirname(file))
+    pid = Process.spawn('true')
+    Process.wait(pid) # ya no existe
+    File.write(file, JSON.generate(state: 'running', updated: Time.now.to_f - 300, pid: pid,
+                                   steps: %w[a b c d e f], step: 4, detail: "6.6 de 11.5 GB \u00b7 14 MB/s"))
+    @dialog.trigger('ready')
+    assert_equal 'interrupted', last_state['setup']['state']
+  end
+
+  def test_ruby_error_is_shown_in_window_and_logged
+    FileUtils.mkdir_p(Aire::Env.home)
+    Aire::Env.define_singleton_method(:config) { raise IOError, 'disco raro' }
+    @dialog.trigger('ready')
+    fatal = @dialog.scripts.find { |js| js.start_with?('aire.fatal(') }
+    assert fatal, @dialog.scripts.inspect
+    assert_includes fatal, 'disco raro'
+    assert_includes File.read(File.join(Aire::Env.home, 'logs', 'ui.log')), 'IOError: disco raro'
+  ensure
+    Aire::Env.singleton_class.send(:remove_method, :config)
+    Aire::Env.define_singleton_method(:config) { Aire::Env.read_json(File.join(Aire::Env.home, 'config.json')) || {} }
+  end
+
+  def test_progress_file_with_invalid_utf8_still_renders
+    file = Aire::Env.setup_progress_file
+    FileUtils.mkdir_p(File.dirname(file))
+    File.binwrite(file, "{\"state\":\"error\",\"error\":\"fall\xF3\",\"updated\":1}")
+    @dialog.trigger('ready')
+    assert_equal 'error', last_state['setup']['state']
+  end
+
   def test_render_exports_view_and_starts_job
     make_ready
     @dialog.trigger('render', JSON.generate(style: 'nordico', light: 'tarde', quality: 'rapida', variants: 9,

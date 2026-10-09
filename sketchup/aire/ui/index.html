@@ -78,6 +78,19 @@
     <div><h1>AIRE</h1><p>Imágenes realistas de tus diseños</p></div>
   </header>
 
+  <!-- ============ Error inesperado (nunca dejar la ventana en blanco) ============ -->
+  <div class="card error hidden" id="fatal">
+    <h2>Algo no ha ido bien</h2>
+    <p id="fatal-text">AIRE no ha podido cargar. Pulsa «Reintentar»; si se repite, cierra y vuelve a abrir SketchUp.</p>
+    <p class="muted" id="fatal-detail"></p>
+    <button class="primary" id="btn-reload">Reintentar</button>
+    <p><a href="#" id="fatal-log" class="muted hidden">Ver el registro técnico</a></p>
+  </div>
+
+  <div class="card" id="loading">
+    <p class="muted">Cargando…</p>
+  </div>
+
   <!-- ============ Preparación (solo la primera vez) ============ -->
   <section id="setup" class="hidden">
     <div class="card" id="setup-welcome">
@@ -296,8 +309,30 @@ function renderGallery(items) {
   }
 }
 
+let gotState = false;
+
+function fatal(message, log) {
+  show("loading", false);
+  show("fatal", true);
+  if (message) $("fatal-detail").textContent = message;
+  $("fatal-log").classList.toggle("hidden", !log);
+  $("fatal-log").onclick = (e) => { e.preventDefault(); call("open_log", log); };
+}
+
+window.addEventListener("error", (e) => fatal("Error en la ventana: " + (e.message || e)));
+
 window.aire = {
   setState(state) {
+    try { applyState(state); } catch (e) { fatal("Error en la ventana: " + e.message); }
+  },
+  fatal,
+  toast,
+};
+
+function applyState(state) {
+    gotState = true;
+    show("loading", false);
+    show("fatal", false);
     show("setup", !state.ready);
     show("studio", !!state.ready);
     if (!state.ready) renderSetup(state.setup);
@@ -307,9 +342,20 @@ window.aire = {
     $("engine-info").textContent = c.gpu
       ? `Tarjeta gráfica: ${c.gpu} (${c.vram_gb} GB) · Memoria: ${c.ram_gb} GB · Modelo: ${c.preset_title || ""}`
       : "";
-  },
-  toast,
-};
+}
+
+function requestState() {
+  gotState = false;
+  show("fatal", false);
+  show("loading", true);
+  call("ready");
+  // Si SketchUp no contesta en unos segundos, decirlo en vez de dejar la ventana vacía
+  setTimeout(() => {
+    if (!gotState) fatal("SketchUp no ha respondido. Pulsa «Reintentar»; si se repite, reinicia SketchUp.");
+  }, 6000);
+}
+
+$("btn-reload").onclick = requestState;
 
 $("btn-install").onclick = () => call("install");
 $("btn-retry").onclick = () => call("install");
@@ -328,7 +374,7 @@ chips("styles", STYLES, "style", "modelo");
 chips("lights", LIGHTS, "light", "dia");
 chips("qualities", QUALITIES, "quality", "alta");
 chips("variants", VARIANTS, "variants", "1");
-call("ready");
+requestState();
 </script>
 </body>
 </html>

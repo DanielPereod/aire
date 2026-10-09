@@ -37,14 +37,42 @@ module Aire
     private
 
     def register_callbacks
-      @dialog.add_action_callback('ready') { |_ctx| push_state(history: true) }
-      @dialog.add_action_callback('install') { |_ctx| start_install }
-      @dialog.add_action_callback('render') { |_ctx, json| start_render(JSON.parse(json)) }
-      @dialog.add_action_callback('open_image') { |_ctx, path| open_path(path) }
-      @dialog.add_action_callback('open_folder') { |_ctx, path| open_path(File.dirname(path)) }
-      @dialog.add_action_callback('open_log') { |_ctx, path| open_path(path) }
-      @dialog.add_action_callback('save_image') { |_ctx, path| save_image(path) }
+      on('ready') { |_ctx| push_state(history: true) }
+      on('install') { |_ctx| start_install }
+      on('render') { |_ctx, json| start_render(JSON.parse(json)) }
+      on('open_image') { |_ctx, path| open_path(path) }
+      on('open_folder') { |_ctx, path| open_path(File.dirname(path)) }
+      on('open_log') { |_ctx, path| open_path(path) }
+      on('save_image') { |_ctx, path| save_image(path) }
       @dialog.set_on_closed { stop_timer }
+    end
+
+    # Ningún error de Ruby debe dejar la ventana en blanco: se registra y se muestra.
+    def on(name, &block)
+      @dialog.add_action_callback(name) do |*args|
+        block.call(*args)
+      rescue StandardError, ScriptError => e
+        report_error(e, name)
+      end
+    end
+
+    def report_error(error, where)
+      log = File.join(Env.home, 'logs', 'ui.log')
+      begin
+        FileUtils.mkdir_p(File.dirname(log))
+        File.open(log, 'a:UTF-8') do |f|
+          f.puts "=== #{Time.now} [#{where}] AIRE #{Aire::VERSION} SketchUp #{Sketchup.version}"
+          f.puts "#{error.class}: #{error.message}"
+          f.puts Array(error.backtrace).first(25)
+        end
+      rescue StandardError
+        nil
+      end
+      puts "AIRE [#{where}] #{error.class}: #{error.message}"
+      msg = "#{error.class}: #{error.message}".encode('UTF-8', invalid: :replace, undef: :replace)
+      js("aire.fatal(#{JSON.generate(msg)}, #{JSON.generate(log)})")
+    rescue StandardError
+      nil
     end
 
     # ------------------------------------------------------------------ estado
@@ -90,6 +118,13 @@ module Aire
     end
 
     def tick
+      tick!
+    rescue StandardError => e
+      stop_timer
+      report_error(e, 'tick')
+    end
+
+    def tick!
       setup = task_state(Env.setup_progress_file)
       job = @job_dir ? task_state(File.join(@job_dir, 'job.json')) : nil
       finished = !running?(setup) && !running?(job)

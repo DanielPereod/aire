@@ -42,29 +42,24 @@ module Aire
       File.join(home, 'progress', 'setup.json')
     end
 
-    # ¿Sigue vivo el proceso? (sin abrir ventanas: WMI en Windows)
+    # ¿Sigue vivo el proceso? Process.kill(0, pid) no envía nada: solo comprueba que
+    # existe (en Windows Ruby lo implementa con OpenProcess, sin ventanas ni COM).
     def process_alive?(pid)
       pid = pid.to_i
       return true if pid <= 0 # sin dato: no se puede saber, se asume que sí
 
-      if windows?
-        require 'win32ole'
-        wmi = WIN32OLE.connect('winmgmts://')
-        wmi.ExecQuery("SELECT ProcessId FROM Win32_Process WHERE ProcessId = #{pid}").Count.positive?
-      else
-        Process.kill(0, pid)
-        true
-      end
+      Process.kill(0, pid)
+      true
     rescue Errno::ESRCH
       false
-    rescue StandardError, LoadError
+    rescue StandardError
       true
     end
 
     def read_json(path)
       return nil unless File.exist?(path)
 
-      JSON.parse(File.read(path, encoding: 'UTF-8'))
+      JSON.parse(File.binread(path).force_encoding('UTF-8').scrub('?'))
     rescue JSON::ParserError, SystemCallError
       nil # el fichero se está escribiendo justo ahora; se leerá en el siguiente tick
     end
