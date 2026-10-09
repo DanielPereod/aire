@@ -59,6 +59,9 @@ class KleinSettings:
     upscale: float = 1.0
     refine_denoise: float = 0.4  # cuánto rehace la segunda pasada (0 = nada, 1 = todo)
     refine_steps: int = 4
+    # < 1: la 1.ª pasada parte de la imagen base (no de ruido puro) y conserva más sus colores;
+    # útil cuando la base ya tiene luz real (Cycles)
+    base_denoise: float = 1.0
     unet: str = "flux-2-klein-4b-fp8.safetensors"
     text_encoder: str = "qwen_3_4b.safetensors"
     vae: str = "flux2-vae.safetensors"
@@ -105,10 +108,18 @@ def flux2_klein_edit(s: KleinSettings, base_image: str, extra_refs: tuple[str, .
         ref1 = g.add("ImageScale", image=g.out(base), upscale_method="area", width=w1, height=h1, crop="disabled")
     guider = conditioned([ref1, *extras])
     noise = g.add("RandomNoise", noise_seed=s.seed)
-    sigmas = g.add("Flux2Scheduler", steps=s.steps, width=w1, height=h1)
-    latent = g.add("EmptyFlux2LatentImage", width=w1, height=h1, batch_size=1)
+    if s.base_denoise < 1.0:
+        total1 = max(s.steps, round(s.steps / max(s.base_denoise, 0.05)))
+        full = g.add("Flux2Scheduler", steps=total1, width=w1, height=h1)
+        sigmas = g.add("SplitSigmasDenoise", sigmas=g.out(full), denoise=s.base_denoise)
+        sigmas_out = g.out(sigmas, 1)
+        latent = g.add("VAEEncode", pixels=g.out(ref1), vae=g.out(vae))
+    else:
+        sigmas = g.add("Flux2Scheduler", steps=s.steps, width=w1, height=h1)
+        sigmas_out = g.out(sigmas)
+        latent = g.add("EmptyFlux2LatentImage", width=w1, height=h1, batch_size=1)
     out = g.add("SamplerCustomAdvanced", noise=g.out(noise), guider=g.out(guider), sampler=g.out(sampler),
-                sigmas=g.out(sigmas), latent_image=g.out(latent))
+                sigmas=sigmas_out, latent_image=g.out(latent))
     image = g.add("VAEDecode", samples=g.out(out), vae=g.out(vae))
 
     if (w1, h1) != (s.width, s.height):

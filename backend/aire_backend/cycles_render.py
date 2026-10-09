@@ -7,8 +7,8 @@ luz y, de noche, las lámparas encendidas. El resultado es el mismo en cada rend
 
 Funciona con el Blender de línea de órdenes o con el módulo bpy:
 
-    blender -b --factory-startup -P backend/aire_backend/cycles.py -- <export> --out render.png
-    python -m aire_backend.cycles <export> --out render.png        # con «pip install bpy»
+    blender -b --factory-startup -P backend/aire_backend/cycles_render.py -- <export> --out render.png
+    python -m aire_backend.cycles_render <export> --out render.png        # con «pip install bpy»
 """
 
 from __future__ import annotations

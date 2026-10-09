@@ -275,3 +275,13 @@ def test_klein_retouch_workflow():
     assert validate(wf, OBJECT_INFO) == []
     split = next(n for n in wf.values() if n["class_type"] == "SplitSigmasDenoise")
     assert split["inputs"]["denoise"] == 0.2
+
+
+def test_klein_first_pass_can_start_from_base():
+    from aire_backend.workflows import KleinSettings, flux2_klein_edit
+    wf = flux2_klein_edit(KleinSettings(width=1920, height=1376, prompt="p", upscale=1.5, base_denoise=0.8),
+                          "aire/cycles.png")
+    assert validate(wf, OBJECT_INFO) == []
+    first = [n for n in wf.values() if n["class_type"] == "SamplerCustomAdvanced"][0]["inputs"]
+    assert wf[first["latent_image"][0]]["class_type"] == "VAEEncode" and first["sigmas"][1] == 1
+    assert "EmptyFlux2LatentImage" not in [n["class_type"] for n in wf.values()]

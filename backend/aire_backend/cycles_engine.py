@@ -2,7 +2,7 @@
 
 Cycles va como módulo de Python (paquete «bpy» de Blender) en su propio entorno,
 `<AIRE>/cycles/venv`, porque necesita otra versión de Python que el resto de AIRE.
-Se instala solo la primera vez (unos 400 MB) y no abre ninguna ventana.
+Se instala solo la primera vez (unos 700 MB) y no abre ninguna ventana.
 """
 
 from __future__ import annotations
@@ -41,22 +41,24 @@ def install(home: Path, uv: Path, run) -> None:
     if not py.exists():
         run([uv, "venv", venv_dir(home), "--python", PYTHON_VERSION], "Preparando el motor de luz")
     run([uv, "pip", "install", "--python", py, f"bpy=={BPY_VERSION}", "numpy"],
-        "Instalando el motor de luz real (unos 400 MB)")
+        "Instalando el motor de luz real (unos 700 MB)")
 
 
 def render(home: Path, export: Path, out: Path, width: int, light: str, samples: int = 256,
            timeout: float = 1800, on_wait=None) -> dict:
-    """Renderiza con Cycles en un proceso aparte. Devuelve el JSON que escribe cycles.py."""
+    """Renderiza con Cycles en un proceso aparte. Devuelve el JSON que escribe cycles_render.py."""
     backend = Path(__file__).resolve().parents[1]
     log = home / "logs" / "cycles.log"
     log.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [str(python(home)), "-m", "aire_backend.cycles", str(export), "--out", str(out),
+    cmd = [str(python(home)), "-m", "aire_backend.cycles_render", str(export), "--out", str(out),
            "--width", str(width), "--samples", str(samples), "--light", light]
     env = {**os.environ, "PYTHONPATH": str(backend)}
     with open(log, "a", encoding="utf-8", errors="replace") as lf:
         lf.write(f"\n=== {time.ctime()}\n$ {' '.join(cmd)}\n")
         lf.flush()
-        proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT, env=env, creationflags=NO_WINDOW)
+        # cwd en la carpeta de AIRE: nada del directorio actual debe tapar módulos de Blender
+        proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT, env=env, cwd=str(home),
+                                creationflags=NO_WINDOW)
         t0 = time.time()
         while proc.poll() is None:
             if time.time() - t0 > timeout:

@@ -50,7 +50,7 @@ Cambios de la 0.7 tras las primeras imágenes con FLUX (detalle perdido, poco re
 Las pruebas de la 0.7/0.8 mostraron el límite de la IA sola: con una imagen base de luz
 plana tenía que inventarse la luz y, de paso, cambiaba materiales según la semilla. Ahora:
 
-1. `cycles.py` renderiza la exportación con Cycles (Blender como módulo `bpy`, en su propio
+1. `cycles_render.py` renderiza la exportación con Cycles (Blender como módulo `bpy`, en su propio
    entorno `cycles/venv`, Python 3.13): geometría y cámara exactas, materiales PBR deducidos
    del nombre (mármol, latón, tela, cristal, cortina…), sol y cielo con la orientación de
    SketchUp, ventanas como portales de luz y lámparas encendidas por la tarde y la noche.
@@ -59,7 +59,7 @@ plana tenía que inventarse la luz y, de paso, cambiaba materiales según la sem
    en fotografía con la luz y los materiales ya resueltos. ~45 s más.
 
 Si Cycles no está o falla, «Alta calidad» sigue con la imagen base sencilla (se anota en
-`logs/render.log`). «Preparar AIRE» lo instala (unos 400 MB); en instalaciones anteriores se
+`logs/render.log`). «Preparar AIRE» lo instala (unos 700 MB); en instalaciones anteriores se
 instala solo en el primer render de alta calidad.
 
 ## Idea central: G-buffer exacto desde el modelo
