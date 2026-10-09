@@ -21,11 +21,12 @@ module Aire
     def initialize
       @dialog = UI::HtmlDialog.new(
         dialog_title: 'AIRE · Render con IA', preferences_key: 'AIRE_window',
-        width: 460, height: 820, min_width: 380, min_height: 560,
+        width: 560, height: 900, min_width: 420, min_height: 600,
         style: UI::HtmlDialog::STYLE_DIALOG
       )
       @dialog.set_file(File.join(__dir__, 'ui', 'index.html'))
       @job_dir = nil
+      @job_kind = nil
       @timer = nil
       register_callbacks
     end
@@ -45,6 +46,9 @@ module Aire
       on('open_log') { |_ctx, path| open_path(path) }
       on('save_image') { |_ctx, path| save_image(path) }
       on('open_jobs') { |_ctx| open_jobs }
+      on('edit_load') { |_ctx, path| edit_load(path) }
+      on('pick_reference') { |_ctx| pick_reference }
+      on('edit') { |_ctx, json| start_edit(JSON.parse(json)) }
       @dialog.set_on_closed { stop_timer }
     end
 
@@ -82,7 +86,8 @@ module Aire
         ready: Env.ready?,
         config: Env.config.slice('gpu', 'vram_gb', 'ram_gb', 'preset_title'),
         setup: task_state(Env.setup_progress_file),
-        job: @job_dir ? task_state(File.join(@job_dir, 'job.json')) : nil
+        job: @job_dir ? task_state(File.join(@job_dir, 'job.json')) : nil,
+        job_kind: @job_kind
       }
       state[:history] = history_items if history
       js("aire.setState(#{JSON.generate(state)})")
@@ -129,8 +134,10 @@ module Aire
       setup = task_state(Env.setup_progress_file)
       job = @job_dir ? task_state(File.join(@job_dir, 'job.json')) : nil
       finished = !running?(setup) && !running?(job)
-      push_state(history: finished && job && job['state'] == 'done')
+      done = finished && job && job['state'] == 'done'
+      push_state(history: done)
       stop_timer if finished
+      edit_finished(job) if done && @job_kind == 'edit'
     end
 
     # ------------------------------------------------------------------ acciones
@@ -170,9 +177,83 @@ module Aire
                             '--variants', params['variants'].to_i.clamp(1, 4).to_s,
                             '--prompt-file', prompt_file, '--progress', progress])
       @job_dir = job_dir
+      @job_kind = 'render'
       push_state
     rescue StandardError => e
       notify("No se ha podido leer el modelo: #{e.message}")
+    end
+
+    # ------------------------------------------------------------------ edición
+    IMAGE_TYPES = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg',
+                    '.webp' => 'image/webp' }.freeze
+    MAX_REFERENCE_BYTES = 25 * 1024 * 1024
+
+    def data_url(path)
+      type = IMAGE_TYPES[File.extname(path).downcase] || 'image/png'
+      "data:#{type};base64,#{Base64.strict_encode64(File.binread(path))}"
+    end
+
+    # Vista previa ligera (jpg de 1600 px) si existe; si no, la imagen original
+    def preview_of(path)
+      res = Env.read_json(File.join(File.dirname(path), 'result.json'))
+      item = res && res['images'].to_a.find { |i| File.expand_path(i['path'].to_s) == File.expand_path(path) }
+      prev = item && item['preview']
+      prev && File.exist?(prev) ? prev : path
+    end
+
+    def edit_load(path)
+      return notify('No se encuentra esa imagen.') unless path && File.exist?(path)
+
+      res = Env.read_json(File.join(File.dirname(path), 'result.json')) || {}
+      source = res['source'] && File.exist?(res['source']) ? data_url(preview_of(res['source'])) : nil
+      data = { path: path, src: data_url(preview_of(path)), source: source }
+      js("aire.editImage(#{JSON.generate(data)})")
+    end
+
+    def pick_reference
+      dir = Sketchup.read_default('AIRE', 'reference_dir', Dir.home)
+      path = UI.openpanel('Elige una imagen de referencia', dir, 'Imágenes|*.png;*.jpg;*.jpeg;*.webp||')
+      return unless path && File.exist?(path)
+
+      Sketchup.write_default('AIRE', 'reference_dir', File.dirname(path))
+      return notify('Esa imagen es demasiado grande (más de 25 MB).') if File.size(path) > MAX_REFERENCE_BYTES
+      return notify('Usa una imagen PNG, JPG o WEBP.') unless IMAGE_TYPES.key?(File.extname(path).downcase)
+
+      ref = { path: path, name: File.basename(path), src: data_url(path) }
+      js("aire.addReference(#{JSON.generate(ref)})")
+    end
+
+    def start_edit(params)
+      return notify('AIRE todavía no está preparado.') unless Env.ready?
+      return notify('Espera a que termine la imagen en curso.') if @job_dir && running?(task_state(File.join(@job_dir, 'job.json')))
+
+      image = params['path'].to_s
+      return notify('No se encuentra esa imagen.') unless File.exist?(image)
+
+      job_dir = File.join(Env.home, 'jobs', "#{Time.now.strftime('%Y%m%d-%H%M%S')}-cambio")
+      FileUtils.mkdir_p(job_dir)
+      prompt_file = File.join(job_dir, 'cambio.txt')
+      File.write(prompt_file, params['prompt'].to_s, mode: 'w:UTF-8')
+      args = ['--home', Env.home, '--image', image, '--job-dir', job_dir, '--prompt-file', prompt_file]
+      mask = params['mask'].to_s
+      if mask.start_with?('data:image/png;base64,')
+        mask_file = File.join(job_dir, 'zona.png')
+        File.binwrite(mask_file, Base64.decode64(mask.split(',', 2)[1]))
+        args += ['--mask', mask_file]
+      end
+      Array(params['refs']).first(3).each { |r| args += ['--ref', r.to_s] if File.exist?(r.to_s) }
+      progress = File.join(job_dir, 'job.json')
+      File.write(progress, JSON.generate(state: 'running', steps: ['Preparando la imagen'], step: 0,
+                                         title: 'Preparando la imagen', detail: '', updated: Time.now.to_f))
+      Runner.python('edit', args + ['--progress', progress])
+      @job_dir = job_dir
+      @job_kind = 'edit'
+      push_state
+    end
+
+    def edit_finished(job)
+      path = job.dig('result', 'images', 0, 'path')
+      js("aire.editDone(#{JSON.generate({ path: path })})") if path
     end
 
     def save_image(path)
@@ -208,7 +289,8 @@ module Aire
           thumb = img['thumb'] && File.exist?(img['thumb']) ? Base64.strict_encode64(File.binread(img['thumb'])) : nil
           items << { path: img['path'], thumb: thumb && "data:image/jpeg;base64,#{thumb}",
                      style: res['style'], light: res['light'], text: res['user_prompt'],
-                     created: res['created'], label: img['label'], quality: res['quality'] }
+                     created: res['created'], label: img['label'], quality: res['quality'],
+                     kind: res['kind'] || 'render', source: res['source'] }
         end
         break if items.size >= limit
       end

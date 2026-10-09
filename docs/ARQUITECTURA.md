@@ -168,3 +168,17 @@ Cada edición es una versión nueva del render (historial con deshacer).
 - **Instalación automática y ventana**: hecho (v0.3.0, ver [INSTALACION.md](INSTALACION.md)).
 - **P4, producto**: UI de chat en HtmlDialog, servidor local, selector de hardware,
   descarga de modelos y proveedor de nube.
+
+## v0.10: ventana nueva y edición
+
+La ventana tiene tres pestañas: **Crear** (luz, estilo, indicaciones, calidad), **Editar** y
+**Galería**. En Editar se describe el cambio, se puede pintar la zona a tocar (inpaint) y
+añadir hasta 3 imágenes de referencia. `edit.py` lo resuelve con el motor de edición:
+
+- Con zona pintada, se edita solo un recorte alrededor de ella a 1024 px (más detalle en lo
+  pequeño) y se pega con borde suave: fuera de la zona la imagen queda idéntica.
+- Sin zona, se rehace la imagen entera siguiendo la instrucción.
+- Las referencias entran como imágenes adicionales del modelo de edición («image 2…»).
+
+Cada edición es un trabajo nuevo (`jobs/<fecha>-cambio`) con `kind: edit` y `source`, así la
+galería la marca como «Editada» y el editor puede enseñar el «Antes».

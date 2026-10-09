@@ -6,207 +6,392 @@
 <title>AIRE</title>
 <style>
   :root {
-    --bg: #f6f3ee; --card: #ffffff; --ink: #1f2522; --muted: #66706b; --line: #e3ddd3;
-    --accent: #2f6f62; --accent-ink: #ffffff; --accent-soft: #e2efeb; --warn: #9a3b2e; --warn-soft: #f8e6e2;
-    --gold: #c9962b; --radius: 14px;
+    --bg: #f4f2ee; --surface: #ffffff; --surface-2: #f8f6f2; --ink: #1c211f; --ink-2: #48514d;
+    --muted: #7a837f; --line: #e4e0d8; --line-2: #d6d1c7;
+    --accent: #2d6a5d; --accent-hover: #255a4f; --accent-ink: #ffffff; --accent-soft: #e4efeb;
+    --gold: #c9962b; --warn: #a3402f; --warn-soft: #fbece8; --ok: #2d6a5d;
+    --shadow: 0 1px 2px rgba(28, 33, 31, .06), 0 4px 16px rgba(28, 33, 31, .05);
+    --radius: 12px; --radius-sm: 8px;
+    --mask: #ff4d2e;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #161a19; --card: #202624; --ink: #ecefed; --muted: #9aa5a0; --line: #303836;
-      --accent: #5fb3a0; --accent-ink: #0f1513; --accent-soft: #23352f; --warn: #f09a8a; --warn-soft: #3a2420;
+      --bg: #121514; --surface: #1b1f1e; --surface-2: #222826; --ink: #eceeed; --ink-2: #c3c9c6;
+      --muted: #8e9894; --line: #2b3230; --line-2: #39413e;
+      --accent: #5db29f; --accent-hover: #6fc2af; --accent-ink: #0e1412; --accent-soft: #1f322d;
+      --warn: #f19a89; --warn-soft: #36211d;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 15px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
-  main { padding: 18px 16px 32px; max-width: 560px; margin: 0 auto; }
-  header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-  header svg { width: 34px; height: 34px; }
-  header h1 { font-size: 20px; margin: 0; letter-spacing: .5px; }
-  header p { margin: 0; color: var(--muted); font-size: 13px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-          padding: 16px; margin-bottom: 14px; }
-  h2 { font-size: 16px; margin: 0 0 8px; }
-  .muted { color: var(--muted); font-size: 13px; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
+         font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; }
+  svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8;
+          stroke-linecap: round; stroke-linejoin: round; }
   .hidden { display: none !important; }
-  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line);
-           background: var(--card); color: var(--ink); padding: 8px 12px; }
-  button:disabled { opacity: .5; cursor: default; }
-  .primary { width: 100%; background: var(--accent); color: var(--accent-ink); border: none;
-             padding: 14px; font-size: 16px; font-weight: 600; }
-  .label { font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
-  .label:first-child { margin-top: 0; }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { padding: 6px 12px; border-radius: 999px; font-size: 14px; }
-  .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink);
-                               font-weight: 600; }
-  textarea { width: 100%; min-height: 64px; resize: vertical; font: inherit; color: var(--ink);
-             background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .muted { color: var(--muted); font-size: 12.5px; }
+
+  /* ---------- cabecera y pestañas ---------- */
+  .top { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 14px 18px 10px; }
+  .brand .logo { width: 30px; height: 30px; }
+  .brand h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: .6px; }
+  .brand p { margin: 0; font-size: 12px; color: var(--muted); }
+  .pill { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+          color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+          padding: 3px 10px; white-space: nowrap; }
+  .pill .led { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .pill.ready .led { background: #3fae7a; }
+  .pill.busy .led { background: var(--gold); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .tabs { display: flex; gap: 2px; padding: 0 12px; }
+  .tab { appearance: none; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600;
+         padding: 9px 12px 10px; cursor: pointer; border-bottom: 2px solid transparent; display: flex;
+         align-items: center; gap: 7px; }
+  .tab:hover { color: var(--ink); }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+  .tab .count { font-size: 11px; font-weight: 600; background: var(--line); color: var(--ink-2);
+                border-radius: 999px; padding: 0 6px; }
+
+  main { padding: 16px 16px 28px; max-width: 760px; margin: 0 auto; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+          padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow); }
+  h2 { font-size: 15px; font-weight: 650; margin: 0 0 6px; }
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  .label { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px;
+           font-weight: 650; text-transform: uppercase; letter-spacing: .5px; color: var(--ink-2);
+           margin-bottom: 7px; }
+  .label .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+  /* ---------- controles ---------- */
+  button { font: inherit; color: var(--ink); cursor: pointer; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: var(--radius-sm);
+         border: 1px solid var(--line-2); background: var(--surface); padding: 7px 12px; font-weight: 550;
+         transition: background .15s, border-color .15s; }
+  .btn:hover { background: var(--surface-2); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.ghost { border-color: transparent; background: transparent; }
+  .btn.ghost:hover { background: var(--surface-2); }
+  .btn.icon { padding: 6px; }
+  .primary { width: 100%; display: flex; align-items: center; justify-content: center; gap: 9px; border: 0;
+             border-radius: 10px; background: var(--accent); color: var(--accent-ink); padding: 13px 16px;
+             font-size: 15px; font-weight: 650; transition: background .15s, transform .05s; }
+  .primary:hover { background: var(--accent-hover); }
+  .primary:active { transform: translateY(1px); }
+  .primary:disabled { opacity: .55; cursor: default; }
+  .seg { display: flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+  .seg button { flex: 1; border: 0; background: none; border-radius: 7px; padding: 7px 8px; color: var(--ink-2);
+                font-weight: 550; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .seg button small { color: var(--muted); font-weight: 400; font-size: 11.5px; }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+  .styles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .style { border: 1px solid var(--line); background: var(--surface); border-radius: 9px; padding: 7px 6px 8px;
+           text-align: center; font-size: 12.5px; font-weight: 550; color: var(--ink-2); }
+  .style .sw { display: flex; height: 18px; border-radius: 5px; overflow: hidden; margin-bottom: 6px; }
+  .style .sw i { flex: 1; }
+  .style[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); box-shadow: 0 0 0 1px var(--accent) inset; }
+  textarea { width: 100%; min-height: 70px; resize: vertical; font: inherit; color: var(--ink); background: var(--surface-2);
+             border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; outline: none; }
+  textarea:focus { border-color: var(--accent); background: var(--surface); }
+  input[type=range] { accent-color: var(--accent); width: 110px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12.5px; list-style: none; display: flex;
+                    align-items: center; gap: 6px; }
+  details summary::-webkit-details-marker { display: none; }
+  details[open] summary { margin-bottom: 10px; }
+  .check { display: flex; gap: 8px; align-items: center; font-size: 13px; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .steps { list-style: none; padding: 0; margin: 10px 0; }
-  .steps li { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; color: var(--muted); }
+  .hint { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--muted); margin: 10px 2px 12px; }
+
+  /* ---------- progreso ---------- */
+  .steps { list-style: none; padding: 0; margin: 10px 0 4px; }
+  .steps li { display: flex; gap: 9px; align-items: center; padding: 3px 0; color: var(--muted); font-size: 13px; }
   .steps li.now { color: var(--ink); font-weight: 600; }
-  .steps li.ok { color: var(--ink); }
-  .dot { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2px solid var(--line); margin-top: 2px; }
+  .steps li.ok { color: var(--ink-2); }
+  .dot { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 2px solid var(--line-2);
+         display: grid; place-items: center; }
   li.ok .dot { background: var(--accent); border-color: var(--accent); }
+  li.ok .dot::after { content: ""; width: 6px; height: 3px; border: solid var(--accent-ink); border-width: 0 0 2px 2px;
+                      transform: rotate(-45deg) translate(1px, -1px); }
   li.now .dot { border-color: var(--accent); border-top-color: transparent; animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 8px 0 4px; }
-  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+  .bar { height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 10px 0 6px; }
+  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width .4s; border-radius: 99px; }
   .bar.indet > div { width: 30%; animation: slide 1.4s ease-in-out infinite; }
   @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+  .job { display: flex; gap: 12px; align-items: center; }
+  .job .spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--accent-soft);
+                  border-top-color: var(--accent); animation: spin 1s linear infinite; flex: none; }
+  .job h2 { margin: 0; }
   .error { background: var(--warn-soft); border-color: var(--warn); }
   .error h2 { color: var(--warn); }
-  .gallery { display: grid; grid-template-columns: 1fr; gap: 12px; }
-  .shot { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); }
-  .shot img { width: 100%; display: block; cursor: zoom-in; background: var(--line); min-height: 120px; }
-  .shot .meta { padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .shot .meta span { font-size: 12px; color: var(--muted); }
-  .shot .meta .row { flex-wrap: nowrap; flex: none; }
-  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-  #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink);
-           color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 14px; max-width: 90%;
-           opacity: 0; transition: opacity .3s; pointer-events: none; }
-  #toast.show { opacity: 1; }
-  ul.req { margin: 8px 0 14px; padding-left: 20px; }
+  a.link { color: var(--accent); font-size: 12.5px; }
+
+  /* ---------- galería ---------- */
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .shot { position: relative; border-radius: 10px; overflow: hidden; background: var(--line); aspect-ratio: 4 / 3;
+          box-shadow: var(--shadow); }
+  .shot img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+  .shot .badge { position: absolute; top: 8px; left: 8px; font-size: 11px; font-weight: 650; color: #fff;
+                 background: rgba(20, 24, 22, .62); backdrop-filter: blur(4px); padding: 2px 8px; border-radius: 999px; }
+  .shot .over { position: absolute; inset: auto 0 0 0; padding: 26px 8px 8px; display: flex; gap: 6px;
+                align-items: flex-end; justify-content: space-between;
+                background: linear-gradient(transparent, rgba(12, 15, 14, .72)); opacity: 0; transition: opacity .15s; }
+  .shot:hover .over, .shot:focus-within .over { opacity: 1; }
+  .shot .over span { color: #f1f3f2; font-size: 11.5px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis;
+                     white-space: nowrap; }
+  .shot .over .row { flex-wrap: nowrap; flex: none; gap: 4px; }
+  .shot .over .btn { background: rgba(255, 255, 255, .92); color: #1c211f; border: 0; padding: 5px 9px; font-size: 12.5px; }
+  .empty { text-align: center; padding: 36px 16px; color: var(--muted); }
+  .empty svg.i { width: 36px; height: 36px; stroke-width: 1.3; margin-bottom: 8px; }
+  .empty h2 { color: var(--ink); }
+
+  /* ---------- editor ---------- */
+  .stage { position: relative; border-radius: 10px; overflow: hidden; background: var(--line); user-select: none;
+           touch-action: none; }
+  .stage img, .stage canvas { display: block; width: 100%; }
+  .stage canvas { position: absolute; inset: 0; height: 100%; cursor: none; opacity: .5; }
+  .stage.view canvas { cursor: default; }
+  .brush { position: absolute; pointer-events: none; border: 1.5px solid #fff; border-radius: 50%;
+           box-shadow: 0 0 0 1px rgba(0, 0, 0, .45); transform: translate(-50%, -50%); display: none; }
+  .tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 10px 0 14px; }
+  .tools .seg { flex: none; }
+  .tools .seg button { padding: 6px 10px; }
+  .tools .spacer { flex: 1; }
+  .refs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ref { position: relative; width: 72px; height: 72px; border-radius: 9px; overflow: hidden; border: 1px solid var(--line); }
+  .ref img { width: 100%; height: 100%; object-fit: cover; }
+  .ref button { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; border: 0;
+                background: rgba(20, 24, 22, .7); color: #fff; font-size: 13px; line-height: 20px; padding: 0; }
+  .add-ref { width: 72px; height: 72px; border-radius: 9px; border: 1.5px dashed var(--line-2); background: var(--surface-2);
+             color: var(--muted); display: flex; flex-direction: column; align-items: center; justify-content: center;
+             gap: 2px; font-size: 11.5px; }
+  .add-ref:hover { color: var(--accent); border-color: var(--accent); }
+  .compare-tag { position: absolute; top: 8px; right: 8px; font-size: 11px; font-weight: 650; color: #fff;
+                 background: rgba(20, 24, 22, .62); padding: 2px 8px; border-radius: 999px; pointer-events: none; }
+
+  #toast { position: fixed; left: 50%; bottom: 18px; transform: translate(-50%, 8px); background: var(--ink);
+           color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 13.5px; max-width: 90%;
+           opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; box-shadow: var(--shadow); z-index: 20; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  ul.req { margin: 8px 0 16px; padding-left: 20px; color: var(--ink-2); }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3" fill="#2f6f62"/><path d="M5 17l4.5-5 3 3.2 2.2-2.4L19 17z" fill="#f4efe6"/><path d="M17.5 5.5l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z" fill="#f2c14e"/></svg>
-    <div><h1>AIRE</h1><p>Imágenes realistas de tus diseños</p></div>
-  </header>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-sunset" viewBox="0 0 24 24"><path d="M17 18a5 5 0 0 0-10 0M12 9V2M4.2 10.2l1.4 1.4M1 18h2M21 18h2M18.4 11.6l1.4-1.4M23 22H1M16 5l-4 4-4-4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-brush" viewBox="0 0 24 24"><path d="M9.1 14.9l-3.5 3.6a2 2 0 0 1-2.8-2.8l3.6-3.5"/><path d="M14 4l6 6-8.5 8.5-6-6z"/></symbol>
+  <symbol id="i-eraser" viewBox="0 0 24 24"><path d="M20 20H8l-5-5 10-10 8 8-6 7"/><path d="M6 11l7 7"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+</svg>
 
+<div class="top">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3" fill="#2d6a5d"/><path d="M5 17l4.5-5 3 3.2 2.2-2.4L19 17z" fill="#f4efe6"/><path d="M17.5 5.5l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z" fill="#f2c14e"/></svg>
+    <div><h1>AIRE</h1><p>Imágenes realistas de tus diseños</p></div>
+    <span class="pill" id="pill"><span class="led"></span><span id="pill-text">Cargando</span></span>
+  </div>
+  <nav class="tabs hidden" id="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="crear"><svg class="i"><use href="#i-spark"/></svg>Crear</button>
+    <button class="tab" role="tab" data-tab="editar"><svg class="i"><use href="#i-edit"/></svg>Editar</button>
+    <button class="tab" role="tab" data-tab="galeria"><svg class="i"><use href="#i-grid"/></svg>Galería <span class="count hidden" id="count"></span></button>
+  </nav>
+</div>
+
+<main>
   <!-- ============ Error inesperado (nunca dejar la ventana en blanco) ============ -->
   <div class="card error hidden" id="fatal">
     <h2>Algo no ha ido bien</h2>
     <p id="fatal-text">AIRE no ha podido cargar. Pulsa «Reintentar»; si se repite, cierra y vuelve a abrir SketchUp.</p>
     <p class="muted" id="fatal-detail"></p>
     <button class="primary" id="btn-reload">Reintentar</button>
-    <p><a href="#" id="fatal-log" class="muted hidden">Ver el registro técnico</a></p>
+    <p><a href="#" id="fatal-log" class="link hidden">Ver el registro técnico</a></p>
   </div>
 
-  <div class="card" id="loading">
-    <p class="muted">Cargando…</p>
-  </div>
+  <div class="card" id="loading"><p class="muted">Cargando…</p></div>
 
   <!-- ============ Preparación (solo la primera vez) ============ -->
   <section id="setup" class="hidden">
     <div class="card" id="setup-welcome">
       <h2>Vamos a preparar AIRE</h2>
-      <p>Antes de crear la primera imagen, AIRE necesita instalar su motor de inteligencia artificial
-         en este ordenador. <b>Solo se hace una vez.</b></p>
+      <p>Antes de crear la primera imagen, AIRE instala su motor de inteligencia artificial en este ordenador.
+         <b>Solo se hace una vez.</b></p>
       <ul class="req">
         <li>Tarda entre 30 y 90 minutos, según tu conexión a internet.</li>
         <li>Necesita unos 40 GB libres en el disco.</li>
         <li>Puedes seguir usando SketchUp mientras tanto.</li>
       </ul>
-      <button class="primary" id="btn-install">Preparar AIRE</button>
+      <button class="primary" id="btn-install"><svg class="i"><use href="#i-download"/></svg>Preparar AIRE</button>
     </div>
-
     <div class="card hidden" id="setup-running">
       <h2>Preparando AIRE…</h2>
-      <p class="muted">Puedes seguir trabajando en SketchUp. Si se corta, vuelve a abrir AIRE y continuará
-        donde se quedó.</p>
+      <p class="muted">Puedes seguir trabajando en SketchUp. Si se corta, vuelve a abrir AIRE y continuará donde se quedó.</p>
       <ul class="steps" id="setup-steps"></ul>
       <div class="bar" id="setup-bar"><div></div></div>
       <div class="muted" id="setup-detail"></div>
     </div>
-
     <div class="card error hidden" id="setup-error">
       <h2>No se ha podido terminar</h2>
       <p id="setup-error-text"></p>
-      <div class="row">
-        <button class="primary" id="btn-retry">Volver a intentarlo</button>
-      </div>
-      <p><a href="#" id="setup-log" class="muted">Ver el registro técnico</a></p>
+      <button class="primary" id="btn-retry">Volver a intentarlo</button>
+      <p><a href="#" id="setup-log" class="link">Ver el registro técnico</a></p>
     </div>
   </section>
 
   <!-- ============ Estudio ============ -->
   <section id="studio" class="hidden">
-    <div class="card">
-      <div class="label">Estilo</div>
-      <div class="chips" id="styles"></div>
-      <div class="label">Luz</div>
-      <div class="chips" id="lights"></div>
-      <div class="label">¿Algo más? <span class="muted">(opcional)</span></div>
-      <textarea id="prompt" placeholder="Por ejemplo: añade plantas, una alfombra de yute y cuadros en la pared"></textarea>
-      <div class="label">Calidad</div>
-      <div class="chips" id="qualities"></div>
-      <div class="label">Cuántas imágenes</div>
-      <div class="chips" id="variants"></div>
-      <p class="muted">Antes de pulsar, encuadra en SketchUp la vista que quieres.</p>
-      <button class="primary" id="btn-render">Crear imagen de esta vista</button>
-    </div>
-
+    <!-- Tarea en marcha (crear o editar) -->
     <div class="card hidden" id="job-running">
-      <h2 id="job-title">Creando la imagen…</h2>
+      <div class="job">
+        <div class="spinner"></div>
+        <div style="flex:1;min-width:0">
+          <h2 id="job-title">Creando la imagen…</h2>
+          <div class="muted" id="job-detail"></div>
+        </div>
+      </div>
+      <ul class="steps" id="job-steps"></ul>
       <div class="bar" id="job-bar"><div></div></div>
-      <div class="muted" id="job-detail"></div>
     </div>
-
     <div class="card error hidden" id="job-error">
-      <h2>No se ha podido crear la imagen</h2>
+      <h2>No se ha podido terminar</h2>
       <p id="job-error-text"></p>
-      <p><a href="#" id="job-log" class="muted">Ver el registro técnico</a></p>
+      <a href="#" id="job-log" class="link">Ver el registro técnico</a>
     </div>
 
-    <div class="row" style="justify-content: space-between; margin: 4px 0 8px">
-      <h2 id="gallery-title" class="hidden" style="margin:0">Tus imágenes</h2>
-      <button id="btn-folder">Abrir carpeta de imágenes</button>
+    <!-- ---------- Crear ---------- -->
+    <div id="tab-crear">
+      <div class="card">
+        <div class="field">
+          <div class="label">Luz</div>
+          <div class="seg" id="lights"></div>
+        </div>
+        <div class="field">
+          <div class="label">Estilo</div>
+          <div class="styles" id="styles"></div>
+        </div>
+        <div class="field">
+          <div class="label">Indicaciones <span class="muted">opcional</span></div>
+          <textarea id="prompt" placeholder="Por ejemplo: añade plantas, una alfombra de yute y cuadros en la pared"></textarea>
+        </div>
+        <div class="field row" style="gap:12px;align-items:flex-start">
+          <div style="flex:2;min-width:200px">
+            <div class="label">Calidad</div>
+            <div class="seg" id="qualities"></div>
+          </div>
+          <div style="flex:1;min-width:120px">
+            <div class="label">Imágenes</div>
+            <div class="seg" id="variants"></div>
+          </div>
+        </div>
+      </div>
+      <div class="hint"><svg class="i"><use href="#i-info"/></svg>Encuadra en SketchUp la vista que quieres. Para un aspecto de foto real, pon la cámara a la altura de los ojos.</div>
+      <button class="primary" id="btn-render"><svg class="i"><use href="#i-spark"/></svg><span>Crear imagen de esta vista</span></button>
+      <div class="card" style="margin-top:16px">
+        <details>
+          <summary><svg class="i" style="width:15px;height:15px"><use href="#i-gear"/></svg>Opciones avanzadas</summary>
+          <p class="muted" id="engine-info"></p>
+          <label class="check"><input type="checkbox" id="compare"> Comparar 8 ajustes técnicos (para pruebas)</label>
+        </details>
+      </div>
     </div>
-    <div class="gallery" id="gallery"></div>
 
-    <div class="card" style="margin-top:14px">
-      <details>
-        <summary>Opciones avanzadas</summary>
-        <p class="muted" id="engine-info"></p>
-        <label class="row"><input type="checkbox" id="compare"> Comparar 8 ajustes técnicos (para pruebas)</label>
-      </details>
+    <!-- ---------- Editar ---------- -->
+    <div id="tab-editar" class="hidden">
+      <div class="card empty" id="edit-empty">
+        <svg class="i"><use href="#i-edit"/></svg>
+        <h2>Elige una imagen para cambiarla</h2>
+        <p>En la galería, pulsa «Editar» en cualquier imagen. Podrás describir el cambio, pintar la zona
+           que quieres tocar y añadir imágenes de referencia.</p>
+        <button class="btn" id="btn-go-gallery"><svg class="i"><use href="#i-grid"/></svg>Ir a la galería</button>
+      </div>
+      <div id="edit-panel" class="hidden">
+        <div class="stage" id="stage">
+          <img id="edit-img" alt="Imagen a editar">
+          <canvas id="mask"></canvas>
+          <div class="brush" id="brush"></div>
+          <span class="compare-tag hidden" id="compare-tag">Original</span>
+        </div>
+        <div class="tools">
+          <div class="seg" id="tool">
+            <button data-tool="brush" aria-pressed="true" title="Pintar la zona a cambiar"><svg class="i"><use href="#i-brush"/></svg>Pintar</button>
+            <button data-tool="erase" aria-pressed="false" title="Borrar parte de la zona"><svg class="i"><use href="#i-eraser"/></svg>Borrar</button>
+          </div>
+          <input type="range" id="size" min="8" max="160" value="48" title="Tamaño del pincel">
+          <button class="btn ghost icon" id="btn-clear" title="Quitar toda la zona"><svg class="i"><use href="#i-trash"/></svg></button>
+          <span class="spacer"></span>
+          <button class="btn ghost hidden" id="btn-before" title="Mantén pulsado para ver la imagen de la que viene"><svg class="i"><use href="#i-eye"/></svg>Antes</button>
+        </div>
+        <div class="card">
+          <div class="field">
+            <div class="label">¿Qué quieres cambiar?</div>
+            <textarea id="edit-prompt" placeholder="Por ejemplo: cambia el sofá por uno de lino verde, o pon un suelo de madera clara"></textarea>
+            <p class="muted" id="mask-hint">Sin zona pintada, el cambio puede afectar a toda la imagen. Pinta encima para limitarlo a una parte.</p>
+          </div>
+          <div class="field">
+            <div class="label">Referencias <span class="muted">opcional · hasta 3 imágenes</span></div>
+            <div class="refs" id="refs"></div>
+          </div>
+        </div>
+        <button class="primary" id="btn-edit"><svg class="i"><use href="#i-edit"/></svg><span>Aplicar cambios</span></button>
+      </div>
+    </div>
+
+    <!-- ---------- Galería ---------- -->
+    <div id="tab-galeria" class="hidden">
+      <div class="card empty hidden" id="gallery-empty">
+        <svg class="i"><use href="#i-image"/></svg>
+        <h2>Todavía no hay imágenes</h2>
+        <p>Las que crees aparecerán aquí.</p>
+      </div>
+      <div class="gallery" id="gallery"></div>
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="btn ghost" id="btn-folder"><svg class="i"><use href="#i-folder"/></svg>Abrir carpeta de imágenes</button>
+      </div>
     </div>
   </section>
 </main>
 <div id="toast" role="status"></div>
 
 <script>
-const STYLES = [["modelo", "Como en el modelo"], ["nordico", "Nórdico"], ["japandi", "Japandi"],
-                ["mediterraneo", "Mediterráneo"], ["industrial", "Industrial"], ["clasico", "Clásico"],
-                ["lujo", "Lujo"], ["minimalista", "Minimalista"]];
-const LIGHTS = [["dia", "De día"], ["tarde", "Atardecer"], ["noche", "De noche"]];
-const QUALITIES = [["rapida", "Rápida"], ["alta", "Alta calidad"]];
+const STYLES = [["modelo", "Como el modelo", ["#d9d2c5", "#8a7a66", "#5f6f6a"]],
+                ["nordico", "Nórdico", ["#f1ede6", "#d8c7ad", "#9fa8a3"]],
+                ["japandi", "Japandi", ["#e8e1d4", "#a68a64", "#3e3a35"]],
+                ["mediterraneo", "Mediterráneo", ["#f4efe6", "#c9784d", "#3f6f9a"]],
+                ["industrial", "Industrial", ["#7a7774", "#3a3633", "#a8643a"]],
+                ["clasico", "Clásico", ["#efe6d6", "#8c6a43", "#5b2f2a"]],
+                ["lujo", "Lujo", ["#1f2321", "#c9a35b", "#e9e3d8"]],
+                ["minimalista", "Minimalista", ["#ffffff", "#e6e4e0", "#2b2b2b"]]];
+const LIGHTS = [["dia", "De día", "i-sun"], ["tarde", "Atardecer", "i-sunset"], ["noche", "De noche", "i-moon"]];
+const QUALITIES = [["rapida", "Rápida", "~30 s"], ["alta", "Alta calidad", "~2 min"]];
 const VARIANTS = [["1", "1"], ["2", "2"], ["4", "4"]];
-const NAMES = Object.fromEntries([...STYLES, ...LIGHTS]);
+const NAMES = Object.fromEntries([...STYLES, ...LIGHTS].map(([k, v]) => [k, v]));
+const MAX_REFS = 3;
 
 const $ = (id) => document.getElementById(id);
 const prefs = load();
+let state = {};
+let history = [];
 
-function load() {
-  try { return JSON.parse(localStorage.getItem("aire-prefs")) || {}; } catch (e) { return {}; }
-}
-function save() {
-  try { localStorage.setItem("aire-prefs", JSON.stringify(prefs)); } catch (e) { /* sin almacenamiento */ }
-}
-
-function chips(id, options, key, fallback) {
-  const box = $(id);
-  if (!(key in prefs)) prefs[key] = fallback;
-  box.innerHTML = "";
-  for (const [value, text] of options) {
-    const b = document.createElement("button");
-    b.className = "chip";
-    b.textContent = text;
-    b.setAttribute("aria-pressed", String(prefs[key] === value));
-    b.onclick = () => { prefs[key] = value; save(); chips(id, options, key, fallback); };
-    box.appendChild(b);
-  }
-}
-
+function load() { try { return JSON.parse(localStorage.getItem("aire-prefs")) || {}; } catch (e) { return {}; } }
+function save() { try { localStorage.setItem("aire-prefs", JSON.stringify(prefs)); } catch (e) { /* sin almacenamiento */ } }
 function call(name, ...args) {
   if (window.sketchup && typeof window.sketchup[name] === "function") window.sketchup[name](...args);
 }
-
+function icon(id) { return `<svg class="i"><use href="#${id}"/></svg>`; }
+function show(id, on) { $(id).classList.toggle("hidden", !on); }
 function toast(msg) {
   const t = $("toast");
   t.textContent = msg;
@@ -215,39 +400,76 @@ function toast(msg) {
   toast.timer = setTimeout(() => t.classList.remove("show"), 4000);
 }
 
-function show(id, on) { $(id).classList.toggle("hidden", !on); }
+// ---------- controles de «Crear» ----------
+function seg(id, options, key, fallback) {
+  const box = $(id);
+  if (!(key in prefs)) prefs[key] = fallback;
+  box.innerHTML = "";
+  for (const [value, text, extra] of options) {
+    const b = document.createElement("button");
+    const ic = extra && extra.startsWith("i-") ? icon(extra) : "";
+    const note = extra && !extra.startsWith("i-") ? ` <small>${extra}</small>` : "";
+    b.innerHTML = `${ic}<span>${text}</span>${note}`;
+    b.setAttribute("aria-pressed", String(prefs[key] === value));
+    b.onclick = () => { prefs[key] = value; save(); seg(id, options, key, fallback); };
+    box.appendChild(b);
+  }
+}
+function styles() {
+  const box = $("styles");
+  if (!prefs.style) prefs.style = "modelo";
+  box.innerHTML = "";
+  for (const [value, text, colors] of STYLES) {
+    const b = document.createElement("button");
+    b.className = "style";
+    b.innerHTML = `<div class="sw">${colors.map((c) => `<i style="background:${c}"></i>`).join("")}</div>${text}`;
+    b.setAttribute("aria-pressed", String(prefs.style === value));
+    b.onclick = () => { prefs.style = value; save(); styles(); };
+    box.appendChild(b);
+  }
+}
 
+// ---------- pestañas ----------
+function tab(name) {
+  prefs.tab = name; save();
+  for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.tab === name));
+  for (const n of ["crear", "editar", "galeria"]) show("tab-" + n, n === name);
+  if (name === "editar") requestAnimationFrame(sizeCanvas);
+}
+for (const t of document.querySelectorAll(".tab")) t.onclick = () => tab(t.dataset.tab);
+$("btn-go-gallery").onclick = () => tab("galeria");
+
+// ---------- progreso ----------
 function bar(id, percent) {
   const el = $(id);
   const indet = percent === null || percent === undefined;
   el.classList.toggle("indet", indet);
   el.firstElementChild.style.width = indet ? "" : Math.max(2, Math.min(100, percent)) + "%";
 }
-
-// Si la tarea no da señales un rato, decirlo (para no mirar una barra congelada sin saber)
 function quietFor(updated) {
   if (!updated) return "";
   const secs = Date.now() / 1000 - updated;
   if (secs < 60) return "";
-  const mins = Math.floor(secs / 60);
-  return ` · sin noticias desde hace ${mins} min`;
+  return ` · sin noticias desde hace ${Math.floor(secs / 60)} min`;
 }
-
+function steps(listId, task) {
+  const list = $(listId);
+  list.innerHTML = "";
+  (task.steps || []).forEach((name, i) => {
+    const li = document.createElement("li");
+    li.className = i < task.step ? "ok" : i === task.step ? "now" : "";
+    li.innerHTML = '<span class="dot"></span><span></span>';
+    li.lastChild.textContent = name;
+    list.appendChild(li);
+  });
+}
 function renderSetup(setup) {
   const st = setup ? setup.state : null;
   show("setup-welcome", !st || st === "done");
   show("setup-running", st === "running");
   show("setup-error", st === "error" || st === "interrupted");
   if (st === "running") {
-    const list = $("setup-steps");
-    list.innerHTML = "";
-    (setup.steps || []).forEach((name, i) => {
-      const li = document.createElement("li");
-      li.className = i < setup.step ? "ok" : i === setup.step ? "now" : "";
-      li.innerHTML = '<span class="dot"></span><span></span>';
-      li.lastChild.textContent = name;
-      list.appendChild(li);
-    });
+    steps("setup-steps", setup);
     $("setup-detail").textContent = (setup.detail || "") + quietFor(setup.updated);
     bar("setup-bar", setup.percent);
   } else if (st === "error" || st === "interrupted") {
@@ -255,97 +477,302 @@ function renderSetup(setup) {
       ? "La preparación se detuvo (quizá se apagó el ordenador o se perdió la conexión). Pulsa el botón para continuar donde se quedó."
       : setup.error;
     $("btn-retry").textContent = st === "interrupted" ? "Continuar" : "Volver a intentarlo";
-    $("setup-log").classList.toggle("hidden", !setup.log);
+    show("setup-log", !!setup.log);
     $("setup-log").onclick = (e) => { e.preventDefault(); call("open_log", setup.log); };
   }
 }
-
-function renderJob(job) {
+function busy() { return !!(state.job && state.job.state === "running"); }
+function renderJob(job, kind) {
   const st = job ? job.state : null;
-  const busy = st === "running";
-  show("job-running", busy);
+  const running = st === "running";
+  show("job-running", running);
   show("job-error", st === "error" || st === "interrupted");
-  $("btn-render").disabled = busy;
-  $("btn-render").textContent = busy ? "Creando…" : "Crear imagen de esta vista";
-  if (busy) {
-    $("job-title").textContent = (job.title || "Creando la imagen") + "…";
+  setButton("btn-render", running ? "Creando…" : "Crear imagen de esta vista", running);
+  setButton("btn-edit", running ? "Aplicando…" : "Aplicar cambios", running);
+  if (running) {
+    $("job-title").textContent = (kind === "edit" ? "Aplicando los cambios" : "Creando la imagen") + "…";
     $("job-detail").textContent = (job.detail || "") + quietFor(job.updated);
+    steps("job-steps", job);
     bar("job-bar", job.percent);
   } else if (st === "error" || st === "interrupted") {
     $("job-error-text").textContent = st === "interrupted"
-      ? "Se ha interrumpido. Vuelve a pulsar «Crear imagen de esta vista»."
-      : job.error;
-    $("job-log").classList.toggle("hidden", !job.log);
+      ? "Se ha interrumpido. Vuelve a intentarlo." : job.error;
+    show("job-log", !!job.log);
     $("job-log").onclick = (e) => { e.preventDefault(); call("open_log", job.log); };
   }
 }
+function setButton(id, text, disabled) {
+  const b = $(id);
+  b.disabled = disabled;
+  b.querySelector("span").textContent = text;
+}
+function renderPill() {
+  const pill = $("pill");
+  const ready = !!state.ready;
+  const setupRunning = state.setup && state.setup.state === "running";
+  pill.className = "pill " + (busy() || setupRunning ? "busy" : ready ? "ready" : "");
+  $("pill-text").textContent = busy() ? "Trabajando" : setupRunning ? "Preparando" : ready ? "Listo" : "Sin preparar";
+  pill.title = state.config && state.config.gpu ? `${state.config.gpu} · ${state.config.vram_gb} GB` : "";
+}
 
+// ---------- galería ----------
+function when(t) {
+  return t ? new Date(t * 1000).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+}
 function renderGallery(items) {
+  history = items;
   const g = $("gallery");
   g.innerHTML = "";
-  show("gallery-title", items.length > 0);
+  show("gallery-empty", items.length === 0);
+  $("count").textContent = items.length;
+  show("count", items.length > 0);
   for (const it of items) {
     const card = document.createElement("div");
     card.className = "shot";
     const img = document.createElement("img");
     img.alt = "Imagen creada por AIRE";
+    img.loading = "lazy";
     if (it.thumb) img.src = it.thumb;
     img.onclick = () => call("open_image", it.path);
-    const meta = document.createElement("div");
-    meta.className = "meta";
+    card.appendChild(img);
+    if (it.kind === "edit") {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = "Editada";
+      card.appendChild(badge);
+    }
+    const over = document.createElement("div");
+    over.className = "over";
     const info = document.createElement("span");
-    const when = it.created ? new Date(it.created * 1000).toLocaleString("es-ES",
-      { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-    info.textContent = [NAMES[it.style], NAMES[it.light], when].filter(Boolean).join(" · ");
+    const desc = it.kind === "edit" ? (it.text || "Cambio") : [NAMES[it.style], NAMES[it.light]].filter(Boolean).join(" · ");
+    info.textContent = desc + (it.created ? " · " + when(it.created) : "");
+    info.title = it.text || desc;
     if (it.quality === "comparar" && it.label) info.textContent += " · " + it.label;
     const actions = document.createElement("div");
     actions.className = "row";
-    const view = document.createElement("button");
-    view.textContent = "Ver grande";
-    view.onclick = () => call("open_image", it.path);
+    const edit = document.createElement("button");
+    edit.className = "btn";
+    edit.innerHTML = icon("i-edit") + "Editar";
+    edit.onclick = () => openEditor(it);
     const keep = document.createElement("button");
-    keep.textContent = "Guardar…";
+    keep.className = "btn icon";
+    keep.title = "Guardar una copia";
+    keep.innerHTML = icon("i-download");
     keep.onclick = () => call("save_image", it.path);
-    actions.append(view, keep);
-    meta.append(info, actions);
-    card.append(img, meta);
+    actions.append(edit, keep);
+    over.append(info, actions);
+    card.appendChild(over);
     g.appendChild(card);
   }
 }
 
-let gotState = false;
+// ---------- editor ----------
+const editor = { item: null, refs: [], tool: "brush", painted: false, drawing: false, last: null };
+const canvas = $("mask");
+const ctx = canvas.getContext("2d");
 
+function openEditor(item) {
+  editor.item = item;
+  editor.painted = false;
+  tab("editar");
+  show("edit-empty", false);
+  show("edit-panel", true);
+  show("btn-before", !!item.source);
+  $("edit-img").src = item.thumb || "";
+  call("edit_load", item.path);
+}
+window.aire = window.aire || {};
+function loadEditorImage(data) {
+  if (!editor.item || data.path !== editor.item.path) return;
+  editor.item.preview = data.src;
+  editor.item.sourceSrc = data.source || null;
+  const img = $("edit-img");
+  img.onload = () => {
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    editor.painted = false;
+    updateMaskHint();
+    sizeCanvas();
+  };
+  img.src = data.src;
+}
+function sizeCanvas() { /* el lienzo se escala por CSS; nada que hacer salvo el cursor */ }
+function updateMaskHint() {
+  $("mask-hint").textContent = editor.painted
+    ? "Solo cambiará la zona pintada; el resto queda idéntico."
+    : "Sin zona pintada, el cambio puede afectar a toda la imagen. Pinta encima para limitarlo a una parte.";
+}
+function canvasPoint(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * canvas.width / r.width, y: (e.clientY - r.top) * canvas.height / r.height,
+           scale: canvas.width / r.width };
+}
+function stroke(a, b) {
+  const size = Number($("size").value);
+  ctx.globalCompositeOperation = editor.tool === "erase" ? "destination-out" : "source-over";
+  ctx.strokeStyle = ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--mask").trim();
+  ctx.lineCap = ctx.lineJoin = "round";
+  ctx.lineWidth = size * a.scale;
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+}
+function moveBrush(e) {
+  const r = $("stage").getBoundingClientRect();
+  const br = $("brush");
+  const size = Number($("size").value);
+  br.style.display = "block";
+  br.style.width = br.style.height = size + "px";
+  br.style.left = (e.clientX - r.left) + "px";
+  br.style.top = (e.clientY - r.top) + "px";
+}
+canvas.addEventListener("pointerdown", (e) => {
+  if (!editor.item) return;
+  canvas.setPointerCapture(e.pointerId);
+  editor.drawing = true;
+  editor.last = canvasPoint(e);
+  stroke(editor.last, editor.last);
+});
+canvas.addEventListener("pointermove", (e) => {
+  moveBrush(e);
+  if (!editor.drawing) return;
+  const p = canvasPoint(e);
+  stroke(editor.last, p);
+  editor.last = p;
+});
+function endStroke() {
+  if (!editor.drawing) return;
+  editor.drawing = false;
+  editor.painted = hasMask();
+  updateMaskHint();
+}
+canvas.addEventListener("pointerup", endStroke);
+canvas.addEventListener("pointercancel", endStroke);
+canvas.addEventListener("pointerleave", () => { $("brush").style.display = "none"; });
+$("size").oninput = () => {};
+for (const b of $("tool").querySelectorAll("button")) {
+  b.onclick = () => {
+    editor.tool = b.dataset.tool;
+    for (const o of $("tool").querySelectorAll("button")) o.setAttribute("aria-pressed", String(o === b));
+  };
+}
+$("btn-clear").onclick = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); editor.painted = false; updateMaskHint(); };
+function hasMask() {
+  if (!canvas.width) return false;
+  const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let i = 3; i < d.length; i += 16) if (d[i] > 0) return true;
+  return false;
+}
+function maskDataUrl() {
+  if (!hasMask()) return null;
+  const out = document.createElement("canvas");
+  out.width = canvas.width;
+  out.height = canvas.height;
+  const o = out.getContext("2d");
+  o.fillStyle = "#000";
+  o.fillRect(0, 0, out.width, out.height);
+  const src = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const dst = o.getImageData(0, 0, out.width, out.height);
+  for (let i = 0; i < src.data.length; i += 4) {
+    const v = src.data[i + 3] > 0 ? 255 : 0;
+    dst.data[i] = dst.data[i + 1] = dst.data[i + 2] = v;
+  }
+  o.putImageData(dst, 0, 0);
+  return out.toDataURL("image/png");
+}
+// «Antes»: mantener pulsado muestra la imagen de la que viene esta edición
+function peek(on) {
+  if (!editor.item || !editor.item.sourceSrc) return;
+  $("edit-img").src = on ? editor.item.sourceSrc : editor.item.preview;
+  canvas.style.visibility = on ? "hidden" : "";
+  show("compare-tag", on);
+}
+$("btn-before").addEventListener("pointerdown", () => peek(true));
+for (const ev of ["pointerup", "pointerleave"]) $("btn-before").addEventListener(ev, () => peek(false));
+
+function renderRefs() {
+  const box = $("refs");
+  box.innerHTML = "";
+  editor.refs.forEach((r, i) => {
+    const d = document.createElement("div");
+    d.className = "ref";
+    d.title = r.name;
+    d.innerHTML = `<img alt=""><button title="Quitar">×</button>`;
+    d.querySelector("img").src = r.src;
+    d.querySelector("button").onclick = () => { editor.refs.splice(i, 1); renderRefs(); };
+    box.appendChild(d);
+  });
+  if (editor.refs.length < MAX_REFS) {
+    const add = document.createElement("button");
+    add.className = "add-ref";
+    add.innerHTML = icon("i-plus") + "Añadir";
+    add.onclick = () => call("pick_reference");
+    box.appendChild(add);
+  }
+}
+function addReference(ref) {
+  if (editor.refs.length >= MAX_REFS) return toast(`Como máximo ${MAX_REFS} referencias.`);
+  if (editor.refs.some((r) => r.path === ref.path)) return;
+  editor.refs.push(ref);
+  renderRefs();
+}
+$("btn-edit").onclick = () => {
+  if (!editor.item) return;
+  const prompt = $("edit-prompt").value.trim();
+  if (!prompt && !editor.refs.length) return toast("Escribe qué quieres cambiar o añade una referencia.");
+  setButton("btn-edit", "Preparando…", true);
+  const params = { path: editor.item.path, prompt, refs: editor.refs.map((r) => r.path), mask: maskDataUrl() };
+  setTimeout(() => call("edit", JSON.stringify(params)), 30);
+};
+
+// ---------- estado que envía SketchUp ----------
+let gotState = false;
 function fatal(message, log) {
   show("loading", false);
   show("fatal", true);
   if (message) $("fatal-detail").textContent = message;
-  $("fatal-log").classList.toggle("hidden", !log);
+  show("fatal-log", !!log);
   $("fatal-log").onclick = (e) => { e.preventDefault(); call("open_log", log); };
 }
-
 window.addEventListener("error", (e) => fatal("Error en la ventana: " + (e.message || e)));
 
-window.aire = {
-  setState(state) {
-    try { applyState(state); } catch (e) { fatal("Error en la ventana: " + e.message); }
+Object.assign(window.aire, {
+  setState(s) { try { applyState(s); } catch (e) { fatal("Error en la ventana: " + e.message); } },
+  editImage(data) { try { loadEditorImage(data); } catch (e) { toast("No se ha podido abrir la imagen."); } },
+  addReference(ref) { try { addReference(ref); } catch (e) { toast("No se ha podido añadir la referencia."); } },
+  editDone(item) {
+    // Al terminar una edición se abre el resultado para seguir encadenando cambios
+    const found = history.find((h) => h.path === item.path) || item;
+    $("edit-prompt").value = "";
+    editor.refs = []; renderRefs();
+    openEditor(found);
   },
   fatal,
   toast,
-};
+});
 
-function applyState(state) {
-    gotState = true;
-    show("loading", false);
-    show("fatal", false);
-    show("setup", !state.ready);
-    show("studio", !!state.ready);
-    if (!state.ready) renderSetup(state.setup);
-    else renderJob(state.job);
-    if (state.history) renderGallery(state.history);
-    const c = state.config || {};
-    $("engine-info").textContent = c.gpu
-      ? `Tarjeta gráfica: ${c.gpu} (${c.vram_gb} GB) · Memoria: ${c.ram_gb} GB · Modelo: ${c.preset_title || ""}`
-      : "";
+function applyState(s) {
+  const wasBusy = busy();
+  state = s;
+  gotState = true;
+  show("loading", false);
+  show("fatal", false);
+  show("setup", !s.ready);
+  show("studio", !!s.ready);
+  show("tabs", !!s.ready);
+  renderPill();
+  if (!s.ready) renderSetup(s.setup);
+  else renderJob(s.job, s.job_kind);
+  if (s.history) renderGallery(s.history);
+  const c = s.config || {};
+  $("engine-info").textContent = c.gpu
+    ? `Tarjeta gráfica: ${c.gpu} (${c.vram_gb} GB) · Memoria: ${c.ram_gb} GB · Motor: ${c.preset_title || ""}` : "";
+  if (wasBusy && !busy() && s.job && s.job.state === "done" && s.job_kind !== "edit") {
+    toast("Imagen lista");
+    tab("galeria");
+  }
 }
 
 function requestState() {
@@ -353,32 +780,31 @@ function requestState() {
   show("fatal", false);
   show("loading", true);
   call("ready");
-  // Si SketchUp no contesta en unos segundos, decirlo en vez de dejar la ventana vacía
   setTimeout(() => {
     if (!gotState) fatal("SketchUp no ha respondido. Pulsa «Reintentar»; si se repite, reinicia SketchUp.");
   }, 6000);
 }
 
 $("btn-reload").onclick = requestState;
-
 $("btn-install").onclick = () => call("install");
-$("btn-folder").onclick = () => call("open_jobs");
 $("btn-retry").onclick = () => call("install");
+$("btn-folder").onclick = () => call("open_jobs");
 $("btn-render").onclick = () => {
   const params = {
     style: prefs.style, light: prefs.light, prompt: $("prompt").value,
     quality: $("compare").checked ? "comparar" : prefs.quality, variants: Number(prefs.variants),
   };
-  $("btn-render").disabled = true;
-  $("btn-render").textContent = "Leyendo el modelo…";
+  setButton("btn-render", "Leyendo el modelo…", true);
   // Deja que la ventana se repinte antes de que SketchUp lea el modelo
   setTimeout(() => call("render", JSON.stringify(params)), 50);
 };
 
-chips("styles", STYLES, "style", "modelo");
-chips("lights", LIGHTS, "light", "dia");
-chips("qualities", QUALITIES, "quality", "alta");
-chips("variants", VARIANTS, "variants", "1");
+seg("lights", LIGHTS, "light", "dia");
+styles();
+seg("qualities", QUALITIES, "quality", "alta");
+seg("variants", VARIANTS, "variants", "1");
+renderRefs();
+tab(prefs.tab === "editar" ? "crear" : (prefs.tab || "crear"));
 requestState();
 </script>
 </body>

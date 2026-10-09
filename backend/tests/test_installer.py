@@ -462,3 +462,52 @@ def test_cycles_failure_falls_back_to_simple_base(tmp_path, monkeypatch, fake_se
     assert result["images"]
     assert "luz real no disponible" in (home / "logs" / "render.log").read_text(encoding="utf-8")
     assert result["images"][0]["settings"]["color_lock"] == 0.0
+
+
+def _edit_env(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    from aire_backend import edit as editmod
+    home = tmp_path / "AIRE"
+    home.mkdir()
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1,
+                                                  "comfy_dir": str(fake_models(tmp_path))}))
+    monkeypatch.setattr(editmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
+    src = tmp_path / "jobs" / "a" / "renders"
+    src.mkdir(parents=True)
+    img = Image.new("RGB", (640, 400), (200, 190, 180))
+    img.paste((40, 60, 120), (300, 150, 400, 250))
+    img.save(src / "render_00.png")
+    (src / "result.json").write_text(json.dumps({"style": "nordico", "light": "dia", "quality": "alta"}))
+    return editmod, home, src / "render_00.png"
+
+
+def test_masked_edit_changes_only_the_painted_area(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    import numpy as np
+    from tests.test_render import FakeComfy
+    editmod, home, image = _edit_env(tmp_path, monkeypatch, fake_server)
+    mask = Image.new("L", (320, 200), 0)  # vista previa a la mitad de tamaño
+    mask.paste(255, (150, 75, 200, 125))
+    mask.save(tmp_path / "zona.png")
+    ref = tmp_path / "sofa.jpg"
+    Image.new("RGB", (300, 200), (0, 120, 0)).save(ref)
+    job = tmp_path / "jobs" / "b"
+    res = editmod.run_edit(home, image, "pon un sofá verde", [ref], tmp_path / "zona.png", job, 1,
+                           Progress(None, editmod.STEPS))
+    out = np.asarray(Image.open(res["images"][0]["path"]), np.int16)
+    src = np.asarray(Image.open(image), np.int16)
+    assert out.shape == src.shape
+    assert np.array_equal(out[:100], src[:100])  # lejos de la zona: idéntica
+    assert np.abs(out[200, 350] - src[200, 350]).sum() > 100  # dentro: cambiada
+    assert res["kind"] == "edit" and res["masked"] and res["references"] == 1 and res["style"] == "nordico"
+    assert "second image" in res["prompt"] and "pon un sofá verde" in res["prompt"]
+    assert Path(res["images"][0]["preview"]).exists()
+    wf = FakeComfy.queued[-1]
+    assert sum(n["class_type"] == "LoadImage" for n in wf.values()) == 2  # imagen + referencia
+
+
+def test_edit_without_mask_or_text_asks_for_something(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    editmod, home, image = _edit_env(tmp_path, monkeypatch, fake_server)
+    with pytest.raises(UserError, match="qué quieres cambiar"):
+        editmod.run_edit(home, image, "  ", [], None, tmp_path / "jobs" / "c", 1, Progress(None, editmod.STEPS))
+    res = editmod.run_edit(home, image, "más luz", [], None, tmp_path / "jobs" / "c", 1,
+                           Progress(None, editmod.STEPS))
+    assert Image.open(res["images"][0]["path"]).size == (640, 400) and not res["masked"]

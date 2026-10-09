@@ -81,6 +81,18 @@ def contact_sheet(items: list[tuple[Image.Image, str]], cols: int = 4, tile_w: i
     return sheet
 
 
+def save_views(img: Image.Image, out_dir: Path, stem: str) -> dict:
+    """Miniatura para la galería y vista previa para el editor de la ventana de AIRE."""
+    views = {}
+    for key, size, quality in (("thumb", 640, 85), ("preview", 1600, 90)):
+        v = img.convert("RGB")
+        v.thumbnail((size, size), Image.Resampling.LANCZOS)
+        path = out_dir / f"{stem}_{key}.jpg"
+        v.save(path, quality=quality)
+        views[key] = str(path)
+    return views
+
+
 def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZImageSettings], out_dir: Path,
                 on_each=None, thumbs: bool = False, base: Path | None = None) -> list[dict]:
     """Sube los pases, renderiza cada ajuste y devuelve resultados con fidelidad.
@@ -122,11 +134,7 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
         item = {"file": path.name, "path": str(path), "seconds": round(secs, 1), "label": label(s),
                 "fidelity": score(img, ref_lines), "settings": s.to_dict()}
         if thumbs:
-            thumb = img.convert("RGB")
-            thumb.thumbnail((640, 640))
-            tpath = out_dir / f"render_{i:02d}_thumb.jpg"
-            thumb.save(tpath, quality=85)
-            item["thumb"] = str(tpath)
+            item.update(save_views(img, out_dir, f"render_{i:02d}"))
         results.append(item)
     return results
 
