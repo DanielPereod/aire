@@ -48,3 +48,17 @@ def test_ensure_downloads_once_and_records_scale(tmp_path, monkeypatch):
     again = matlib.ensure(tmp_path, {"wood"}, fetch=fake_fetch)
     assert again["wood"]["id"] == "oak_veneer_01" and len(fetched) == 6
     assert json.loads((tmp_path / "library" / "index.json").read_text())["plaster"]["id"] == "nice_plaster"
+
+
+def test_pad_and_unpad_keep_proportion():
+    from aire_backend.workflows import pad_to, qwen_size, unpad
+    img = Image.new("RGB", (1920, 1385), (10, 20, 30))
+    img.paste((250, 0, 0), (900, 600, 1020, 700))
+    size = qwen_size(*img.size)
+    padded, box = pad_to(img, size)
+    assert padded.size == size
+    back = unpad(padded, box, size, img.size)
+    # el cuadro rojo vuelve al mismo sitio (±3 px), sin desplazamiento por estirar
+    import numpy as np
+    ys, xs = np.nonzero(np.asarray(back)[..., 0] > 200)
+    assert abs(ys.min() - 600) <= 3 and abs(xs.min() - 900) <= 3

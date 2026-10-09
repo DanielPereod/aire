@@ -250,6 +250,29 @@ def qwen_size(w: int, h: int, pixels: int = QWEN_PIXELS) -> tuple[int, int]:
     return max(32, round(w * k / 32) * 32), max(32, round(h * k / 32) * 32)
 
 
+def pad_to(img, size: tuple[int, int]):
+    """Encaja img en size sin deformarla: la escala para que quepa y rellena el resto con su propio
+    borde reflejado. Devuelve (imagen, caja del contenido). Estirar a un tamaño múltiplo de 32
+    cambiaba la proporción un 1,5 % y desplazaba ~16 px los bordes (pruebas 0.11.2)."""
+    import numpy as np
+    from PIL import Image
+    w, h = size
+    k = min(w / img.width, h / img.height)
+    cw, ch = min(w, round(img.width * k)), min(h, round(img.height * k))
+    scaled = np.asarray(img.convert("RGB").resize((cw, ch), Image.Resampling.LANCZOS))
+    left, top = (w - cw) // 2, (h - ch) // 2
+    padded = np.pad(scaled, ((top, h - ch - top), (left, w - cw - left), (0, 0)), mode="symmetric")
+    return Image.fromarray(padded), (left, top, left + cw, top + ch)
+
+
+def unpad(img, box: tuple[int, int, int, int], size: tuple[int, int], final: tuple[int, int]):
+    """Recorta de la salida (de tamaño size, o proporcional) la caja del contenido y la lleva a final."""
+    from PIL import Image
+    sx, sy = img.width / size[0], img.height / size[1]
+    crop = img.crop((round(box[0] * sx), round(box[1] * sy), round(box[2] * sx), round(box[3] * sy)))
+    return crop.resize(final, Image.Resampling.LANCZOS)
+
+
 def qwen21_edit(s: QwenSettings, image: str, extra_refs: tuple[str, ...] = (), prefix: str = "aire/render") -> dict:
     """image (y las referencias) ya subidas a ComfyUI; image debe estar al tamaño final."""
     g = Graph()

@@ -27,7 +27,7 @@ from .job import ensure_models
 from .photo import photo_finish
 from .progress import Progress, UserError
 from .render import round16, save_views
-from .workflows import KleinSettings, QwenSettings, flux2_klein_edit, qwen21_edit, qwen_size
+from .workflows import KleinSettings, QwenSettings, flux2_klein_edit, pad_to, qwen21_edit, qwen_size, unpad
 
 STEPS = ["Preparando la imagen", "Descargando el modelo", "Arrancando el motor", "Aplicando los cambios",
          "Terminando"]
@@ -116,7 +116,12 @@ def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path 
     if engine == "qwen21":
         w, h = qwen_size(region.width, region.height)
     base_path = work / "base.png"
-    region.resize((w, h), Image.Resampling.LANCZOS).save(base_path)
+    ebox = None
+    if engine == "qwen21":  # sin deformar: rellena hasta el múltiplo de 32 en vez de estirar
+        padded, ebox = pad_to(region, (w, h))
+        padded.save(base_path)
+    else:
+        region.resize((w, h), Image.Resampling.LANCZOS).save(base_path)
     ref_paths = [fit_reference(r, work / f"ref_{i}.png") for i, r in enumerate(refs)]
 
     ensure_models(cfg, progress, engine)
@@ -150,6 +155,8 @@ def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path 
     secs = time.perf_counter() - t0
     from io import BytesIO
     new = Image.open(BytesIO(out[0])).convert("RGB")
+    if ebox is not None:
+        new = unpad(new, ebox, (w, h), region.size)
 
     progress.step(4)
     if box:

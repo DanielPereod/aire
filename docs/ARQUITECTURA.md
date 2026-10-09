@@ -216,3 +216,7 @@ como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.
   - La base de Cycles de «Alta calidad» va sin desenfoque, porque con él la fidelidad bajaba de 0,94 a 0,70.
   - «Sin IA» no prepara los pases de apoyo de la IA.
   - El prompt pide que el ratán no se convierta en cristal.
+- 0.11.3:
+  - La imagen de Qwen se encaja sin estirar (escala y relleno reflejado hasta el múltiplo de 32), y luego se recorta. Estirarla desplazaba ~16 px los bordes y la fidelidad bajaba a 0,70.
+  - Desenfoque a f/11.
+  - Sol orientado más bajo: 24° de día y 15° de tarde.

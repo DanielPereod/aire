@@ -605,8 +605,9 @@ def camera_hits(bvh, cam_obj, nx: int = 48, ny: int = 32) -> list:
     return out
 
 
-def set_focus(scene: Scene, tris: np.ndarray, cam_obj, fstop: float = 5.6) -> float | None:
-    """Profundidad de campo leve, como una cámara real a f/5.6: enfoca a lo que hay en el centro
+def set_focus(scene: Scene, tris: np.ndarray, cam_obj, fstop: float = 11.0) -> float | None:
+    """Profundidad de campo leve, como una cámara de interiorismo a f/11 (a f/5.6 el suelo
+    cercano y sus manchas de sol salían borrosos, pruebas 0.11.2): enfoca a lo que hay en el centro
     de la imagen (mediana de la distancia en el tercio central) y desenfoca un poco lo lejano."""
     from mathutils.bvhtree import BVHTree
     if cam_obj.data.type != "PERSP" or len(tris) == 0:
@@ -1041,7 +1042,7 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     else:
         to_sun = None
         if aim and glass:
-            found = aim_sun(scene, tris, bpy.context.scene.camera, 18.0 if light == "tarde" else 32.0,
+            found = aim_sun(scene, tris, bpy.context.scene.camera, 15.0 if light == "tarde" else 24.0,
                             sun_direction(scene))
             if found is not None:
                 to_sun, sun_lit = found

@@ -29,8 +29,8 @@ from .fidelity import edge_map, load_lines, score
 from .passes import Passes, supersampled_shaded
 from .prompt import build_prompt
 from .scene import load_scene
-from .workflows import (KleinSettings, QwenSettings, ZImageSettings, flux2_klein_edit, qwen21_edit, qwen_size,
-                        zimage_control)
+from .workflows import (KleinSettings, QwenSettings, ZImageSettings, flux2_klein_edit, pad_to, qwen21_edit,
+                        qwen_size, unpad, zimage_control)
 
 
 def round16(x: float) -> int:
@@ -119,8 +119,9 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
     if any(isinstance(s, QwenSettings) for s in runs):
         # Qwen trabaja a ~1 Mpx y a un tamaño múltiplo de 32 (no reencuadra); luego se amplía
         src = pdir / "base_qwen.png"
-        Image.open(fitted if base is not None else pdir / "shaded.png").convert("RGB").resize(
-            qwen_size(passes.width, passes.height), Image.Resampling.LANCZOS).save(src)
+        qsize = qwen_size(passes.width, passes.height)
+        padded, qbox = pad_to(Image.open(fitted if base is not None else pdir / "shaded.png"), qsize)
+        padded.save(src)
         qwen_init = client.upload_image(src)
         client.free()  # Qwen ocupa ~16 GB: que no conviva con otro motor en la RAM
     results = []
@@ -138,6 +139,8 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
         images = client.run(wf, check=(i == 0))
         secs = time.perf_counter() - t0
         img = Image.open(BytesIO(images[0]))
+        if isinstance(s, QwenSettings):
+            img = unpad(img.convert("RGB"), qbox, qsize, (passes.width, passes.height))
         if img.size != (passes.width, passes.height):
             img = img.convert("RGB").resize((passes.width, passes.height), Image.Resampling.LANCZOS)
         if base is not None and getattr(s, "color_lock", 0) > 0:
