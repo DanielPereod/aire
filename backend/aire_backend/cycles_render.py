@@ -640,15 +640,17 @@ def aim_sun(scene: Scene, tris: np.ndarray, cam_obj, elevation_deg: float, prefe
     from mathutils.bvhtree import BVHTree
     see = set(SEE_THROUGH)
     solid = np.array([t for t in tris.tolist() if t not in see], dtype=np.int64)
-    clear = np.array(sorted(see), dtype=np.int64)
-    if len(solid) == 0 or len(clear) == 0:
+    if len(solid) == 0:
         return None
-
-    def tree(ids):
-        p = scene.positions[ids].reshape(-1, 3).astype(np.float64)
-        return BVHTree.FromPolygons([tuple(v) for v in p.tolist()],
-                                    [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(ids))], epsilon=0.0)
-    bvh, windows = tree(solid), tree(clear)
+    # Todo lo opaco más el techo que haya añadido AIRE; el sol entra por cristales y por huecos
+    # (puertas acristaladas modeladas sin vidrio, pruebas con «7788 cocina»)
+    verts = [tuple(v) for v in scene.positions[solid].reshape(-1, 3).astype(np.float64).tolist()]
+    faces = [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(solid))]
+    if CEILING:
+        n = len(verts)
+        verts += [tuple(c) for c in CEILING]
+        faces += [(n, n + 1, n + 2), (n, n + 2, n + 3)]
+    bvh = BVHTree.FromPolygons(verts, faces, epsilon=0.0)
     pts = camera_hits(bvh, cam_obj)
     if len(pts) < 50:
         return None
@@ -664,14 +666,7 @@ def aim_sun(scene: Scene, tris: np.ndarray, cam_obj, elevation_deg: float, prefe
         for loc, nrm in pts:
             if nrm.dot(dv) <= 0.05:
                 continue
-            start = loc + nrm * 0.003
-            # Iluminado si el rayo hacia el sol sale por una ventana sin chocar antes con nada
-            # (no basta con no chocar: el techo que AIRE añade no está en la geometría del modelo)
-            win = windows.ray_cast(start, dv, 100.0)
-            if win[0] is None:
-                continue
-            hit = bvh.ray_cast(start, dv, win[3] + 1e-3)
-            if hit[0] is None:
+            if bvh.ray_cast(loc + nrm * 0.003, dv, 200.0)[0] is None:
                 lit += 1
         frac = lit / len(pts)
         closeness = float(np.dot(ph, d[:2] / (np.linalg.norm(d[:2]) or 1.0)))
@@ -702,6 +697,8 @@ def setup_daylight(scene: Scene, light: str, to_sun: np.ndarray | None = None) -
     sky.sun_rotation = math.atan2(to_sun[0], to_sun[1])
     bg = nt.nodes.get("Background")
     bg.inputs["Strength"].default_value = 0.6 if light == "tarde" else 1.0
+    if aimed:  # menos cielo frente al sol: sombras más profundas, como en una foto con sol
+        bg.inputs["Strength"].default_value *= 0.65
     # Cielo casi neutro para alumbrar: una cámara real compensa el azul del cielo con el balance
     # de blancos; hacerlo en la luz conserva los colores propios (el beige sigue siendo beige).
     bw = nt.nodes.new("ShaderNodeRGBToBW")
@@ -885,7 +882,11 @@ def add_ceiling(scene: Scene, tris: np.ndarray, eye: np.ndarray) -> float | None
     mesh.materials.append(mat)
     obj = bpy.data.objects.new("techo", mesh)
     bpy.context.scene.collection.objects.link(obj)
+    CEILING[:] = [(x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z)]
     return round(z, 2)
+
+
+CEILING: list = []  # esquinas del techo añadido por AIRE (para que el sol no «entre» por él)
 
 
 def add_portals(scene: Scene, glass_groups: list[list[int]], eye: np.ndarray) -> int:
@@ -1027,6 +1028,7 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     scene = load_scene(export_dir)
     tris = visible_triangles(scene)
     SEE_THROUGH.clear()
+    CEILING.clear()
     FLOOR_MATERIALS.clear()
     FLOOR_MATERIALS.update(detect_floor(scene, tris))
     _, glass = build_meshes(scene, tris)
@@ -1041,7 +1043,7 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
         lamps = add_lamps(scene, tris, power=150.0)
     else:
         to_sun = None
-        if aim and glass:
+        if aim:
             found = aim_sun(scene, tris, bpy.context.scene.camera, 15.0 if light == "tarde" else 24.0,
                             sun_direction(scene))
             if found is not None:
@@ -1064,6 +1066,8 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     t2 = time.perf_counter()
 
     warmth = {"dia": 0.03, "tarde": 0.08, "noche": 0.0}.get(light, 0.03)
+    if sun_lit is not None and light == "dia":
+        warmth = 0.06  # luz de sol de media tarde, algo más cálida
     # De noche la imagen debe quedar oscura: el límite de EV evita «día nublado»
     img, ev = develop(exr, warmth, key=0.18 if light != "noche" else 0.08, ev=exposure,
                       max_ev=4.0 if light != "noche" else 6.0,

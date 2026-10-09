@@ -220,3 +220,6 @@ como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.
   - La imagen de Qwen se encaja sin estirar (escala y relleno reflejado hasta el múltiplo de 32), y luego se recorta. Estirarla desplazaba ~16 px los bordes y la fidelidad bajaba a 0,70.
   - Desenfoque a f/11.
   - Sol orientado más bajo: 24° de día y 15° de tarde.
+- 0.11.4:
+  - El sol se orienta también hacia huecos sin vidrio, como las puertas acristaladas modeladas sin cristal de «7788 cocina». Cuenta como iluminado todo rayo que sale de la escena sin chocar con nada opaco ni con el techo añadido.
+  - Con sol orientado, el cielo pesa un 35 % menos, para que las sombras sean más profundas, y el día es algo más cálido.
