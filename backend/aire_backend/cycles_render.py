@@ -39,6 +39,9 @@ from aire_backend.scene import Scene, load_scene  # noqa: E402
 # El orden importa: lo más específico primero.
 PRESETS: list[tuple[str, dict]] = [
     (r"vidrio|cristal|glass|ventana|window|vitro", {"kind": "glass"}),
+    # Hojas: dejan pasar algo de luz (lo que en un render se consigue con subsurface/translucidez)
+    (r"planta|plant|hoja|leaf|leaves|foliage|ficus|monstera|olivo|olive|helecho|fern|potus|pothos",
+     {"translucent": 0.35, "roughness": 0.45}),
     (r"cortina|curtain|voile|visillo|courthain|stor", {"kind": "sheer", "roughness": 0.9}),
     (r"lat[oó]n|brass|bronce|bronze|\boro\b|dorad|gold", {"metallic": 1.0, "roughness": 0.28, "tint": (0.93, 0.78, 0.45)}),
     (r"cobre|copper", {"metallic": 1.0, "roughness": 0.3, "tint": (0.95, 0.64, 0.54)}),
@@ -159,11 +162,41 @@ def _lib_image(nodes, links, path: Path, coords, color: bool):
     return node
 
 
+def smudges(nodes, links, bsdf, params: dict) -> None:
+    """Imperfecciones: brillo irregular (zonas más usadas, huellas) con ruido procedural.
+    Se nota sobre todo en superficies brillantes y metales; en mates apenas cambia nada."""
+    base = params.get("roughness", 0.5)
+    tc = nodes.new("ShaderNodeTexCoord")
+    big = nodes.new("ShaderNodeTexNoise")  # manchas de ~20 cm
+    big.inputs["Scale"].default_value = 5.0
+    big.inputs["Detail"].default_value = 4.0
+    links.new(tc.outputs["Object"], big.inputs["Vector"])
+    fine = nodes.new("ShaderNodeTexNoise")  # huellas y micro arañazos de ~1 cm
+    fine.inputs["Scale"].default_value = 90.0
+    fine.inputs["Detail"].default_value = 2.0
+    links.new(tc.outputs["Object"], fine.inputs["Vector"])
+    mix = nodes.new("ShaderNodeMath")
+    mix.operation = "MULTIPLY_ADD"  # big × 0,7 + fine × 0,3 (aprox.)
+    mix.inputs[1].default_value = 0.7
+    links.new(big.outputs["Fac"], mix.inputs[0])
+    links.new(fine.outputs["Fac"], mix.inputs[2])
+    rng = nodes.new("ShaderNodeMapRange")
+    rng.inputs["From Min"].default_value = 0.35
+    rng.inputs["From Max"].default_value = 1.05
+    spread = min(0.12, 0.25 * base + 0.03)
+    rng.inputs["To Min"].default_value = max(0.0, base - spread)
+    rng.inputs["To Max"].default_value = min(1.0, base + spread)
+    links.new(mix.outputs[0], rng.inputs["Value"])
+    links.new(rng.outputs["Result"], bsdf.inputs["Roughness"])
+
+
 def add_detail(nodes, links, bsdf, params: dict, has_texture: bool, base_color, normal_in):
     """Relieve, brillo irregular y (en colores lisos) veta del material real de la biblioteca.
     Devuelve el socket de normal resultante (o normal_in si no hay biblioteca para este tipo)."""
     key = params.get("lib")
     info = LIBRARY.get(key) if key else None
+    if not info or LIBRARY_DIR is None or not info.get("rough"):
+        smudges(nodes, links, bsdf, params)
     if not info or LIBRARY_DIR is None:
         return normal_in
     kind = matlib.BY_KEY[key]
@@ -423,7 +456,7 @@ def _as_group(mat):
             continue
         m = group.nodes.new(n.bl_idname)
         for attr in ("image", "interpolation", "operation", "projection", "projection_blend", "data_type",
-                     "blend_type", "use_clamp", "samples", "vector_type", "space"):
+                     "blend_type", "use_clamp", "clamp", "samples", "vector_type", "space"):
             if hasattr(n, attr):
                 setattr(m, attr, getattr(n, attr))
         for i, s in enumerate(n.inputs):
@@ -553,6 +586,31 @@ def camera_hits(bvh, cam_obj, nx: int = 48, ny: int = 32) -> list:
                     nrm = -nrm
                 out.append((loc, nrm))
     return out
+
+
+def set_focus(scene: Scene, tris: np.ndarray, cam_obj, fstop: float = 5.6) -> float | None:
+    """Profundidad de campo leve, como una cámara real a f/5.6: enfoca a lo que hay en el centro
+    de la imagen (mediana de la distancia en el tercio central) y desenfoca un poco lo lejano."""
+    from mathutils.bvhtree import BVHTree
+    if cam_obj.data.type != "PERSP" or len(tris) == 0:
+        return None
+    p = scene.positions[tris].reshape(-1, 3).astype(np.float64)
+    bvh = BVHTree.FromPolygons([tuple(v) for v in p.tolist()],
+                               [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(tris))], epsilon=0.0)
+    eye = cam_obj.matrix_world.translation
+    hits = camera_hits(bvh, cam_obj, 24, 16)
+    dists = []
+    for loc, _ in hits:
+        v = cam_obj.matrix_world.inverted() @ loc  # en coordenadas de cámara
+        if v.z < 0 and abs(v.x / -v.z) < 0.25 and abs(v.y / -v.z) < 0.25:
+            dists.append((loc - eye).length)
+    if not dists:
+        return None
+    d = float(np.median(dists))
+    cam_obj.data.dof.use_dof = True
+    cam_obj.data.dof.focus_distance = d
+    cam_obj.data.dof.aperture_fstop = fstop
+    return d
 
 
 def aim_sun(scene: Scene, tris: np.ndarray, cam_obj, elevation_deg: float, prefer: np.ndarray):
@@ -939,7 +997,7 @@ def develop(exr_path: Path, warmth: float, key: float = 0.18, ev: float | None =
 
 def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, light: str = "dia",
            device: str = "auto", exposure: float | None = None, level: bool = True,
-           library: str | None = None, bevel: float = BEVEL, aim: bool = True) -> dict:
+           library: str | None = None, bevel: float = BEVEL, aim: bool = True, dof: bool = True) -> dict:
     global LIBRARY, LIBRARY_DIR, BEVEL
     t0 = time.perf_counter()
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -954,6 +1012,7 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     _, glass = build_meshes(scene, tris)
     w, h = setup_camera(scene, width, level)
     eye = Camera.from_scene(scene.camera, scene.view).eye
+    focus = set_focus(scene, tris, bpy.context.scene.camera) if dof else None
     ceiling = add_ceiling(scene, tris, eye)
     lamps = 0
     sun_lit = None
@@ -997,7 +1056,7 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     info = {"out": str(out), "exr": str(exr), "width": w, "height": h, "samples": samples, "light": light,
             "device": used, "portals": portals, "lamps": lamps, "ceiling_added": ceiling, "exposure": round(ev, 2),
             "library": sorted(LIBRARY), "bevel": BEVEL, "floor_materials": sorted(FLOOR_MATERIALS),
-            "sun_aimed": sun_lit is not None, "sun_lit_fraction": round(sun_lit, 3) if sun_lit else None,
+            "focus_m": round(focus, 2) if focus else None, "sun_aimed": sun_lit is not None, "sun_lit_fraction": round(sun_lit, 3) if sun_lit else None,
             "seconds_setup": round(t1 - t0, 1), "seconds_render": round(t2 - t1, 1)}
     out.with_suffix(".json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     return info
@@ -1018,10 +1077,11 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--library", default=None, help="carpeta de la biblioteca de materiales (matlib)")
     ap.add_argument("--bevel", type=float, default=BEVEL, help="radio de cantos redondeados en m (0 = sin)")
     ap.add_argument("--sun-from-model", action="store_true", help="usar el sol de SketchUp tal cual (sin orientarlo)")
+    ap.add_argument("--no-dof", action="store_true", help="sin profundidad de campo")
     args = ap.parse_args(argv)
     info = render(args.export_dir, args.out, args.width, args.samples, args.light, args.device, args.exposure,
                   level=not args.keep_camera, library=args.library, bevel=args.bevel,
-                  aim=not args.sun_from_model)
+                  aim=not args.sun_from_model, dof=not args.no_dof)
     print(json.dumps(info, indent=2))
 
 

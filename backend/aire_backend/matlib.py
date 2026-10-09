@@ -65,7 +65,7 @@ BY_KEY = {k.key: k for k in KINDS}
 # Cualquier superficie lisa sin tipo reconocido (paredes sin nombre, «Material1»…) se trata
 # como pintura: un relieve muy suave que quita el aspecto de plástico perfecto del 3D.
 FALLBACK = "plaster"
-SKIP = re.compile(r"vidrio|cristal|glass|ventana|window|espejo|mirror|cortina|curtain|visillo|azulejo|tile|"
+SKIP = re.compile(r"planta|plant|hoja|leaf|foliage|vidrio|cristal|glass|ventana|window|espejo|mirror|cortina|curtain|visillo|azulejo|tile|"
                   r"cer[aá]mic|ceramic|porcel", re.I)
 
 

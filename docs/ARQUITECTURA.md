@@ -206,3 +206,4 @@ como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.
 - **Sol orientado**: con un BVH de la escena se lanzan rayos desde lo que ve la cámara hacia el sol, a 32° (día) o 18° (tarde), cada 10° de azimut. Se elige el que ilumina entre un 4 y un 35 % de la imagen pasando por una ventana; a igualdad, el más cercano al sol de SketchUp. `--sun-from-model` lo desactiva.
 - **Exterior HDRI**: un jardín de Poly Haven visto solo por los rayos de cámara, normalizado por la mediana de su mitad inferior.
 - **«Alta calidad» con Qwen**: añade al prompt un estilo de foto de catálogo con sol rasante. Fue lo que más acercó el resultado a las fotos de ejemplo de Dani.
+- 0.11.1: profundidad de campo leve (f/5.6, enfocada a la mediana de distancia del tercio central; `--no-dof`); imperfecciones de brillo procedurales (manchas de ~20 cm y huellas de ~1 cm) en materiales sin rugosidad escaneada; hojas translúcidas; aberración cromática muy leve en el acabado de cámara.

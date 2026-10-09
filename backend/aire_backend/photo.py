@@ -30,6 +30,21 @@ def photo_finish(img: Image.Image, strength: float = 1.0, seed: int = 7) -> Imag
     r2 = ((x - w / 2) / (w / 2)) ** 2 * 0.5 + ((y - h / 2) / (h / 2)) ** 2 * 0.5
     lin = lin * (1.0 - 0.10 * strength * r2)[..., None]
     out = np.asarray(_srgb(lin), np.float32)
+    # Aberración cromática muy leve: rojo y azul algo desplazados hacia los bordes, como un objetivo real
+    ca = 0.0007 * strength
+    if ca > 0 and min(w, h) > 256:
+        for ch, k in ((0, 1.0 + ca), (2, 1.0 - ca)):
+            layer = Image.fromarray(np.clip(out[..., ch], 0, 255).astype(np.uint8))
+            nw, nh = round(w * k), round(h * k)
+            layer = layer.resize((nw, nh), Image.Resampling.BILINEAR)
+            if k > 1:
+                l, t = (nw - w) // 2, (nh - h) // 2
+                layer = layer.crop((l, t, l + w, t + h))
+            else:
+                canvas = Image.fromarray(np.clip(out[..., ch], 0, 255).astype(np.uint8))
+                canvas.paste(layer, ((w - nw) // 2, (h - nh) // 2))
+                layer = canvas
+            out[..., ch] = np.asarray(layer, np.float32)
     # Grano fino de luminancia, algo más visible en sombras
     rng = np.random.default_rng(seed)
     grain = rng.normal(0.0, 1.0, (h, w)).astype(np.float32)
