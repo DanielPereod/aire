@@ -63,8 +63,8 @@ OBJECT_INFO["QwenImage21Cache"] = {"input": {"required": {"model": ["MODEL"], "d
                                                           "dtype": [["default", "bf16"]]}}}
 OBJECT_INFO["TextEncodeQwenImage21"] = {"input": {
     "required": {"clip": ["CLIP"], "prompt": ["STRING", {}], "negative_prompt": ["STRING", {}],
-                 "resolution": ["INT", {}]},
-    "optional": {"vae": ["VAE"], "images": ["COMFY_AUTOGROW_V3", {}]}}}
+                 "resolution": ["INT", {}], "images": ["COMFY_AUTOGROW_V3", {}]},
+    "optional": {"vae": ["VAE"]}}}
 
 
 def settings(**kw):

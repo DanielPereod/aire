@@ -5,7 +5,7 @@ require 'sketchup.rb'
 require 'extensions.rb'
 
 module Aire
-  VERSION = '0.10.0'
+  VERSION = '0.10.1'
 
   unless file_loaded?(__FILE__)
     ext = SketchupExtension.new('AIRE · Render IA', File.join(__dir__, 'aire', 'main'))

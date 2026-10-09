@@ -63,7 +63,7 @@ def validate(graph: dict, object_info: dict) -> list[str]:
         spec = {**info.get("input", {}).get("required", {}), **info.get("input", {}).get("optional", {})}
         required = info.get("input", {}).get("required", {})
         for name in required:
-            if name not in node["inputs"]:
+            if name not in node["inputs"] and not any(k.startswith(name + ".") for k in node["inputs"]):
                 problems.append(f"{ct}: falta la entrada obligatoria {name!r}")
         for name, value in node["inputs"].items():
             if name not in spec and name.split(".")[0] in spec:
