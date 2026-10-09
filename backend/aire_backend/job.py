@@ -27,14 +27,14 @@ from .workflows import ZImageSettings
 
 QUALITY = {
     "rapida": {"width": 1024, "refine": 0.0},
-    "alta": {"width": 1536, "refine": 0.3},
-    "comparar": {"width": 1024, "refine": 0.3, "sweep": True},
+    "alta": {"width": 1536, "refine": 0.0},
+    "comparar": {"width": 1024, "refine": 0.0, "sweep": True},
 }
 
-# Cuánto se parte de los colores del modelo (albedo): «Como en el modelo» los respeta
-# mucho; un estilo (nórdico, japandi…) necesita más libertad para cambiar el ambiente.
-DENOISE = {"modelo": 0.82}
-DENOISE_STYLE = 0.93
+# Cuánto puede cambiar la IA la imagen base del modelo: «Como en el modelo» la respeta
+# mucho; un estilo (nórdico, japandi…) necesita algo más de libertad para el ambiente.
+DENOISE = {"modelo": 0.5}
+DENOISE_STYLE = 0.65
 
 STEPS = ["Preparando la escena", "Arrancando el motor", "Creando la imagen", "Terminando"]
 

@@ -141,12 +141,14 @@ class Passes:
             "depth": np.where(valid, depth, 0.0).astype(np.float32),
             "valid": valid,
             "normal": n_view.astype(np.float32),
+            "normal_world": np.where(valid[..., None], n_world, 0.0).astype(np.float32),
             "ids": obj,
             "material": mat,
             "uv": uv,
             "sketchup_edges": edge_obj >= 0,
         }
         self.arrays["albedo"] = self._albedo()
+        self.arrays["shaded"] = self._shaded()
         self.arrays["contours"] = self._contours()
         self.arrays["lines"] = self.arrays["sketchup_edges"] | self.arrays["contours"]
         return self
@@ -196,6 +198,29 @@ class Passes:
             iy = np.clip(((1.0 - v) * th).astype(np.int64), 0, th - 1)
             out[sel] = img[iy, ix, :3]
         return out
+
+    def _shaded(self) -> np.ndarray:
+        """Imagen base fiel al modelo para el render IA: materiales y texturas reales con
+        una iluminación sencilla calculada con la geometría (luz de cielo y luz principal
+        suave). La IA parte de aquí y solo la «fotorrealiza», así no tiene
+        que inventarse colores ni objetos."""
+        a = self.arrays
+        valid, n = a["valid"], a["normal_world"]
+        cam = self.camera
+        basis = cam.basis()  # derecha, arriba, atrás (en mundo)
+        # Luz de cielo (Z arriba en SketchUp): suelos claros, techos algo más oscuros
+        sky = 0.62 + 0.22 * n[..., 2]
+        # Luz principal desde arriba, algo por detrás y a un lado de la cámara
+        key_dir = _normalize(0.35 * basis[0] + 0.75 * np.array([0.0, 0.0, 1.0]) + 0.55 * basis[2])
+        key = 0.32 * np.clip(n @ key_dir, 0.0, 1.0)
+        # Sin oclusión en pantalla: con desniveles de profundidad crea halos alrededor de los
+        # objetos que la IA copiaría; las sombras de contacto las añade bien la propia IA.
+        shade = np.clip(sky + key, 0.0, 1.2)
+        lin = (a["albedo"].astype(np.float32) / 255.0) ** 2.2
+        out = np.clip(lin * shade[..., None], 0.0, 1.0) ** (1 / 2.2)
+        img = (out * 255).round().astype(np.uint8)
+        img[~valid] = 255
+        return img
 
     def _texture(self, rel: str) -> np.ndarray | None:
         path = self.scene.root / rel
@@ -272,6 +297,7 @@ class Passes:
         np.save(out / "material.npy", a["material"])
         Image.fromarray(colorize_ids(a["ids"])).save(out / "ids.png")
         Image.fromarray(a["albedo"]).save(out / "albedo.png")
+        Image.fromarray(a["shaded"]).save(out / "shaded.png")
 
         lines = a["lines"]
         Image.fromarray(np.where(lines, 0, 255).astype(np.uint8)).save(out / "lines.png")

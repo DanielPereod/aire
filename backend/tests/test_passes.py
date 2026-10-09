@@ -140,7 +140,7 @@ def test_interior_end_to_end(tmp_path):
     scene = load_scene(build_interior(tmp_path / "salon", 320, 200))
     p = Passes(scene).render()
     out = p.save(tmp_path / "passes")
-    for name in ("depth.npy", "depth16.png", "normal.png", "ids.npy", "albedo.png",
+    for name in ("depth.npy", "depth16.png", "normal.png", "ids.npy", "albedo.png", "shaded.png",
                  "lines.png", "edges_control.png", "objects_visible.json", "passes.json"):
         assert (out / name).exists(), name
     visible = {o["name"] for o in p.visible_objects()}

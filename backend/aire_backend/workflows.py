@@ -24,15 +24,16 @@ class ZImageSettings:
     scheduler: str = "simple"
     shift: float = 3.0
     weight_dtype: str = "fp8_e4m3fn"  # "default" con ≥16 GB de VRAM
-    # Los controles fijan la composición en los primeros pasos y luego se retiran, para
-    # dejar al modelo libertad en luz y texturas. Con controles fuertes hasta el final
-    # (primera prueba real) el resultado parecía un dibujo: contornos negros y luz plana.
-    depth_strength: float = 0.65
-    depth_end: float = 0.8
-    lines_strength: float = 0.25
-    lines_end: float = 0.45
-    denoise: float = 0.88  # < 1 parte del albedo: conserva colores y materiales del modelo
-    refine: float = 0.0  # > 0: segunda pasada img2img que añade realismo (p. ej. 0.3)
+    # Se parte de la imagen base del modelo (shaded.png: materiales reales + luz sencilla) y
+    # la IA solo la «fotorrealiza» (img2img). Lecciones de las pruebas reales:
+    #  - generar desde ruido con controles fuertes → aspecto de dibujo, contornos negros;
+    #  - desde ruido con controles suaves → se inventa otra habitación.
+    depth_strength: float = 0.8
+    depth_end: float = 1.0
+    lines_strength: float = 0.0  # las líneas de SketchUp acaban pintadas como contornos
+    lines_end: float = 0.5
+    denoise: float = 0.55  # cuánto puede cambiar la IA la imagen base (0 = nada, 1 = todo)
+    refine: float = 0.0  # > 0: segunda pasada img2img (opcional)
     refine_depth: float = 0.35
     unet: str = "z_image_turbo_bf16.safetensors"
     text_encoder: str = "qwen_3_4b.safetensors"
