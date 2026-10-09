@@ -73,7 +73,7 @@ def klein_grid(base: KleinSettings) -> list[KleinSettings]:
 
 
 def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quality: str,
-            seed: int | None, progress: Progress, variants: int = 1) -> dict:
+            seed: int | None, progress: Progress, variants: int = 1, base_image: Path | None = None) -> dict:
     cfg = json.loads((home / "config.json").read_text(encoding="utf-8"))
     if not cfg.get("ready"):
         raise UserError("AIRE todavía no está preparado. Pulsa «Preparar AIRE» primero.")
@@ -107,7 +107,7 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
         progress.update(msg, 100 * i / n)
 
     try:
-        results = run_renders(client, passes, pdir, runs, out_dir, on_each, thumbs=True)
+        results = run_renders(client, passes, pdir, runs, out_dir, on_each, thumbs=True, base=base_image)
     except ComfyError as e:
         text = str(e)
         if "out of memory" in text.lower() or "OutOfMemory" in text:
@@ -134,6 +134,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--quality", default="alta", choices=sorted(QUALITY))
     ap.add_argument("--variants", type=int, default=1)
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--base", type=Path, default=None, help="imagen base en lugar de shaded.png (p. ej. Cycles)")
     ap.add_argument("--progress", type=Path, required=True)
     args = ap.parse_args(argv)
 
@@ -144,7 +145,7 @@ def main(argv: list[str] | None = None) -> None:
         args.prompt = args.prompt_file.read_text(encoding="utf-8")
     try:
         result = run_job(args.home, args.export, args.prompt, args.style, args.light, args.quality,
-                         args.seed, progress, args.variants)
+                         args.seed, progress, args.variants, args.base)
     except BaseException as e:  # noqa: BLE001
         with open(log, "a", encoding="utf-8") as lf:
             lf.write(f"\n=== {time.ctime()}\n")

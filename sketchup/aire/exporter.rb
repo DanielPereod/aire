@@ -219,6 +219,10 @@ module Aire
       %i[workflow metallic_factor roughness_factor normal_scale ao_strength].each do |m|
         pbr[m] = mat.public_send(m) if mat.respond_to?(m)
       end
+      # Sin estas marcas los factores son valores por defecto, no los del material
+      { metalness_enabled: :metalness_enabled?, roughness_enabled: :roughness_enabled? }.each do |k, m|
+        pbr[k] = mat.public_send(m) if mat.respond_to?(m)
+      end
       info[:pbr] = pbr unless pbr.empty?
       @materials << info
       @material_ids[mat] = id

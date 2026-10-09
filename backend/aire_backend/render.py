@@ -80,10 +80,16 @@ def contact_sheet(items: list[tuple[Image.Image, str]], cols: int = 4, tile_w: i
 
 
 def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZImageSettings], out_dir: Path,
-                on_each=None, thumbs: bool = False) -> list[dict]:
+                on_each=None, thumbs: bool = False, base: Path | None = None) -> list[dict]:
     """Sube los pases, renderiza cada ajuste y devuelve resultados con fidelidad.
-    on_each(i, n, fase) se llama antes de cada render para informar del avance."""
-    init = client.upload_image(pdir / "shaded.png")  # imagen base fiel al modelo
+    on_each(i, n, fase) se llama antes de cada render para informar del avance.
+    base: imagen base alternativa a shaded.png (p. ej. un render de Cycles con luz real)."""
+    if base is not None:
+        fitted = pdir / "base_externa.png"
+        Image.open(base).convert("RGB").resize((passes.width, passes.height), Image.Resampling.LANCZOS).save(fitted)
+        init = client.upload_image(fitted)
+    else:
+        init = client.upload_image(pdir / "shaded.png")  # imagen base fiel al modelo
     needs_control = any(isinstance(s, ZImageSettings) for s in runs)
     depth = client.upload_image(pdir / "depth_control.png") if needs_control else None
     lines = client.upload_image(pdir / "edges_control.png") if needs_control else None

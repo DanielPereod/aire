@@ -78,11 +78,12 @@ def material_params(scene: Scene, mid: int, object_names: str) -> dict:
     info = scene.materials[mid]
     tex = (info.get("texture") or {}).get("file")
     p = classify(info.get("name"), info.get("internal_name"), tex, object_names)
-    # PBR de SketchUp 2025+ si el material lo trae: manda sobre lo deducido por el nombre
+    # PBR de SketchUp 2025+: solo si el material lo tiene activado de verdad. Sin esas marcas
+    # SketchUp devuelve valores por defecto (metálico 1, rugosidad 1) que volvían metal el suelo.
     pbr = info.get("pbr") or {}
-    if pbr.get("roughness_factor") is not None and pbr.get("workflow") not in (None, 0):
+    if pbr.get("roughness_enabled") and pbr.get("roughness_factor") is not None:
         p["roughness"] = float(pbr["roughness_factor"])
-    if pbr.get("metallic_factor") is not None and pbr.get("workflow") not in (None, 0):
+    if pbr.get("metalness_enabled") and pbr.get("metallic_factor") is not None:
         p["metallic"] = float(pbr["metallic_factor"])
     alpha = info.get("alpha", 1.0)
     if alpha is not None and alpha < 0.95 and p.get("kind") is None:
