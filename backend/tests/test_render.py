@@ -267,3 +267,11 @@ def test_edit_prompt_names_colors_of_large_surfaces(tmp_path):
     text = build_edit_prompt(passes.scene, a["ids"], a["material"], passes.visible_objects(), albedo=a["albedo"])
     assert "brown at the bottom (Suelo)" in text and "white at the top (Paredes)" in text
     assert "grey" not in text.split("Large surfaces")[0]  # sin palabras de color que empujen
+
+
+def test_klein_retouch_workflow():
+    from aire_backend.workflows import KleinSettings, flux2_klein_retouch
+    wf = flux2_klein_retouch(KleinSettings(width=1920, height=1376, prompt="p"), "aire/cycles.png", 0.2)
+    assert validate(wf, OBJECT_INFO) == []
+    split = next(n for n in wf.values() if n["class_type"] == "SplitSigmasDenoise")
+    assert split["inputs"]["denoise"] == 0.2

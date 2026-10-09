@@ -129,6 +129,30 @@ def flux2_klein_edit(s: KleinSettings, base_image: str, extra_refs: tuple[str, .
     return g.to_json()
 
 
+def flux2_klein_retouch(s: KleinSettings, image: str, denoise: float = 0.2, prefix: str = "aire/retoque") -> dict:
+    """Retoque fotográfico suave de un render ya bueno (p. ej. el de Cycles): parte de esa
+    imagen, la usa también como referencia y rehace solo los últimos pasos."""
+    g = Graph()
+    unet = g.add("UNETLoader", unet_name=s.unet, weight_dtype=s.weight_dtype)
+    clip = g.add("CLIPLoader", clip_name=s.text_encoder, type="flux2", device="default")
+    vae = g.add("VAELoader", vae_name=s.vae)
+    text = g.add("CLIPTextEncode", text=s.prompt, clip=g.out(clip))
+    img = g.add("LoadImage", image=image)
+    lat = g.add("VAEEncode", pixels=g.out(img), vae=g.out(vae))
+    pos = g.add("ReferenceLatent", conditioning=g.out(text), latent=g.out(lat))
+    neg = g.add("ReferenceLatent", conditioning=g.out(g.add("ConditioningZeroOut", conditioning=g.out(text))),
+                latent=g.out(lat))
+    guider = g.add("CFGGuider", model=g.out(unet), positive=g.out(pos), negative=g.out(neg), cfg=s.cfg)
+    total = max(s.refine_steps, round(s.refine_steps / max(denoise, 0.05)))
+    sig = g.add("Flux2Scheduler", steps=total, width=s.width, height=s.height)
+    split = g.add("SplitSigmasDenoise", sigmas=g.out(sig), denoise=denoise)
+    out = g.add("SamplerCustomAdvanced", noise=g.out(g.add("RandomNoise", noise_seed=s.seed)), guider=g.out(guider),
+                sampler=g.out(g.add("KSamplerSelect", sampler_name=s.sampler)), sigmas=g.out(split, 1),
+                latent_image=g.out(lat))
+    g.add("SaveImage", images=g.out(g.add("VAEDecode", samples=g.out(out), vae=g.out(vae))), filename_prefix=prefix)
+    return g.to_json()
+
+
 def zimage_control(s: ZImageSettings, depth_image: str, lines_image: str | None,
                    init_image: str | None = None, prefix: str = "aire/render") -> dict:
     """Z-Image-Turbo guiado por profundidad (+ líneas) con ControlNet Union.

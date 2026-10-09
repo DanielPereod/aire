@@ -63,10 +63,14 @@ LAMP_NAMES = re.compile(r"l[aá]mpara|lamp|pendant|colgante|aplique|sconce|plaf[
 
 
 def classify(*names: str | None) -> dict:
-    text = " ".join(n for n in names if n)
-    for pat, params in PRESETS:
-        if re.search(pat, text, re.I):
-            return {**DEFAULT, **params}
+    """Primer nombre que encaje con algún preset, en orden: el del material manda sobre el del
+    objeto (una isla «de mármol» con frente de nogal no debe dar madera pulida)."""
+    for name in names:
+        if not name:
+            continue
+        for pat, params in PRESETS:
+            if re.search(pat, name, re.I):
+                return {**DEFAULT, **params}
     return dict(DEFAULT)
 
 
@@ -134,22 +138,17 @@ def build_material(scene: Scene, mid: int, params: dict, name: str):
 
     kind = params.get("kind")
     if kind == "glass":
-        # Vidrio de ventana: refleja como cristal, pero deja pasar la luz directa y difusa
-        # (sin cáusticas, que darían ruido y sombras negras detrás de cada ventana).
-        glass = nodes.new("ShaderNodeBsdfGlass")
-        glass.inputs["Roughness"].default_value = 0.0
-        glass.inputs["IOR"].default_value = 1.45
-        glass.inputs["Color"].default_value = [0.97, 0.99, 0.98, 1.0]
+        # Vidrio fino de arquitectura: casi todo transparente con un reflejo suave. Deja pasar
+        # la luz y la vista sin refracción (sin cáusticas ni ventanas oscuras).
         transp = nodes.new("ShaderNodeBsdfTransparent")
-        lp = nodes.new("ShaderNodeLightPath")
-        either = nodes.new("ShaderNodeMath")
-        either.operation = "MAXIMUM"
-        links.new(lp.outputs["Is Shadow Ray"], either.inputs[0])
-        links.new(lp.outputs["Is Diffuse Ray"], either.inputs[1])
+        transp.inputs["Color"].default_value = [0.96, 0.98, 0.97, 1.0]
+        gloss = nodes.new("ShaderNodeBsdfGlossy") if "ShaderNodeBsdfGlossy" in dir(bpy.types) else \
+            nodes.new("ShaderNodeBsdfAnisotropic")
+        gloss.inputs["Roughness"].default_value = 0.0
         mix = nodes.new("ShaderNodeMixShader")
-        links.new(either.outputs[0], mix.inputs["Fac"])
-        links.new(glass.outputs[0], mix.inputs[1])
-        links.new(transp.outputs[0], mix.inputs[2])
+        mix.inputs["Fac"].default_value = 0.08
+        links.new(transp.outputs[0], mix.inputs[1])
+        links.new(gloss.outputs[0], mix.inputs[2])
         links.new(mix.outputs[0], out.inputs["Surface"])
     elif kind == "sheer":
         # Cortina fina: difusa por delante y traslúcida a contraluz
@@ -165,6 +164,18 @@ def build_material(scene: Scene, mid: int, params: dict, name: str):
         links.new(mix.outputs[0], out.inputs["Surface"])
     elif kind == "alpha":
         bsdf.inputs["Alpha"].default_value = params.get("alpha", 1.0)
+    elif params.get("translucent"):
+        # Pantalla de lámpara: deja pasar parte de la luz de la bombilla
+        transl = nodes.new("ShaderNodeBsdfTranslucent")
+        if color_socket is not None:
+            links.new(color_socket, transl.inputs["Color"])
+        else:
+            transl.inputs["Color"].default_value = rgb
+        mix = nodes.new("ShaderNodeMixShader")
+        mix.inputs["Fac"].default_value = params["translucent"]
+        links.new(bsdf.outputs[0], mix.inputs[1])
+        links.new(transl.outputs[0], mix.inputs[2])
+        links.new(mix.outputs[0], out.inputs["Surface"])
     return mat
 
 
@@ -177,11 +188,26 @@ def _face_material(front: np.ndarray, back: np.ndarray) -> tuple[np.ndarray, np.
     return f.astype(np.int64), b.astype(np.int64)
 
 
+def lamp_objects(scene: Scene) -> list[int]:
+    """Objetos de lámpara de nivel más alto (por su nombre)."""
+    def names(o):
+        return " ".join(filter(None, (o.get("name"), o.get("definition"))))
+    out = []
+    for obj in scene.objects:
+        if LAMP_NAMES.search(names(obj)) and not any(LAMP_NAMES.search(names(scene.objects[a]))
+                                                    for a in scene.ancestors(obj["id"])):
+            out.append(obj["id"])
+    return out
+
+
 def build_meshes(scene: Scene, visible_tris: np.ndarray) -> tuple[dict, list]:
     """Una malla por par (material delantero, trasero). Devuelve los objetos y las caras de
     cristal agrupadas por objeto de SketchUp (para los portales de luz)."""
     front, back = _face_material(scene.tri_material_front, scene.tri_material_back)
-    keys = np.stack([front, back], axis=1)
+    lamp_tri = np.zeros(len(scene.tri_object), dtype=np.int64)
+    for oid in lamp_objects(scene):
+        lamp_tri[np.isin(scene.tri_object, scene.descendants(oid))] = 1
+    keys = np.stack([front, back, lamp_tri], axis=1)
     names_by_obj = {o["id"]: " ".join(filter(None, (o.get("name"), o.get("definition"))))
                     for o in scene.objects}
     params_cache: dict[tuple[int, str], dict] = {}
@@ -198,14 +224,17 @@ def build_meshes(scene: Scene, visible_tris: np.ndarray) -> tuple[dict, list]:
             names += [names_by_obj.get(a, "") for a in scene.ancestors(int(oid))]
         return " ".join(names)
 
-    def params_for(mid: int, tris: np.ndarray) -> dict:
-        key = (mid, obj_names(tris))
+    def params_for(mid: int, tris: np.ndarray, lamp: bool) -> dict:
+        key = (mid, obj_names(tris), lamp)
         if key not in params_cache:
-            params_cache[key] = material_params(scene, mid, key[1])
+            p = material_params(scene, mid, key[1])
+            if lamp and p.get("metallic", 0) < 0.5 and p.get("kind") is None:
+                p["translucent"] = 0.5
+            params_cache[key] = p
         return params_cache[key]
 
-    def material_for(mf: int, mb: int, tris: np.ndarray):
-        pf, pb = params_for(mf, tris), params_for(mb, tris)
+    def material_for(mf: int, mb: int, tris: np.ndarray, lamp: bool = False):
+        pf, pb = params_for(mf, tris, lamp), params_for(mb, tris, lamp)
         key = (mf, mb, json.dumps(pf, sort_keys=True), json.dumps(pb, sort_keys=True))
         if key in mats_cache:
             return mats_cache[key], pf
@@ -232,13 +261,16 @@ def build_meshes(scene: Scene, visible_tris: np.ndarray) -> tuple[dict, list]:
 
     uniq, inverse = np.unique(keys[visible_tris], axis=0, return_inverse=True)
     inverse = inverse.reshape(-1)
-    for k, (mf, mb) in enumerate(uniq):
+    for k, (mf, mb, lamp) in enumerate(uniq):
         tris = visible_tris[inverse == k]
-        mat, pf = material_for(int(mf), int(mb), tris)
+        mat, pf = material_for(int(mf), int(mb), tris, bool(lamp))
         if pf.get("kind") == "glass":
             for oid in np.unique(scene.tri_object[tris]):
                 glass_groups.setdefault(int(oid), []).extend(tris[scene.tri_object[tris] == oid].tolist())
-        objects[(int(mf), int(mb), len(objects))] = _make_mesh(scene, tris, mat, f"g{k}")
+        mesh_obj = _make_mesh(scene, tris, mat, f"g{k}")
+        if lamp:
+            mesh_obj.visible_shadow = False  # la luz de la bombilla sale de la lámpara
+        objects[(int(mf), int(mb), len(objects))] = mesh_obj
     return objects, list(glass_groups.values())
 
 
@@ -377,8 +409,9 @@ def setup_daylight(scene: Scene, light: str) -> None:
     sky.sun_elevation = max(elev, math.radians(2))
     sky.sun_rotation = math.atan2(to_sun[0], to_sun[1])
     bg = nt.nodes.get("Background")
-    bg.inputs["Strength"].default_value = 1.0
+    bg.inputs["Strength"].default_value = 0.6 if light == "tarde" else 1.0
     nt.links.new(sky.outputs["Color"], bg.inputs["Color"])
+    _camera_sees(nt, bg, (1.0, 0.98, 0.95), 40.0)
     bpy.context.scene.world = world
 
     sun = bpy.data.lights.new("sol", "SUN")
@@ -397,11 +430,28 @@ def setup_daylight(scene: Scene, light: str) -> None:
     bpy.context.scene.collection.objects.link(obj)
 
 
+def _camera_sees(nt, bg, color, strength) -> None:
+    """Lo que la cámara ve directamente del exterior (ventanas, huecos de puertas) es un fondo
+    claro uniforme, como en la fotografía de interiores; la luz sigue saliendo del cielo."""
+    out = nt.nodes.get("World Output")
+    flat = nt.nodes.new("ShaderNodeBackground")
+    flat.inputs["Color"].default_value = (*color, 1.0)
+    flat.inputs["Strength"].default_value = strength
+    lp = nt.nodes.new("ShaderNodeLightPath")
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    nt.links.new(lp.outputs["Is Camera Ray"], mix.inputs["Fac"])
+    nt.links.new(bg.outputs[0], mix.inputs[1])
+    nt.links.new(flat.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs["Surface"])
+
+
 def setup_night() -> None:
     world = bpy.data.worlds.new("noche")
-    bg = world.node_tree.nodes.get("Background")
+    nt = world.node_tree
+    bg = nt.nodes.get("Background")
     bg.inputs["Color"].default_value = (0.02, 0.03, 0.06, 1.0)
-    bg.inputs["Strength"].default_value = 0.05
+    bg.inputs["Strength"].default_value = 0.002
+    _camera_sees(nt, bg, (0.03, 0.04, 0.08), 0.02)
     bpy.context.scene.world = world
 
 
@@ -445,13 +495,8 @@ def add_lamps(scene: Scene, visible_tris: np.ndarray, power: float = 60.0) -> in
     """Una luz cálida dentro de cada lámpara del modelo (por su nombre)."""
     count = 0
     tri_obj = scene.tri_object[visible_tris]
-    for obj in scene.objects:
-        names = " ".join(filter(None, (obj.get("name"), obj.get("definition"))))
-        if not LAMP_NAMES.search(names) or any(
-                LAMP_NAMES.search(" ".join(filter(None, (scene.objects[a].get("name"), scene.objects[a].get("definition")))))
-                for a in scene.ancestors(obj["id"])):
-            continue
-        sel = np.isin(tri_obj, scene.descendants(obj["id"]))
+    for oid in lamp_objects(scene):
+        sel = np.isin(tri_obj, scene.descendants(oid))
         if not sel.any():
             continue
         p = scene.positions[visible_tris[sel]].reshape(-1, 3)
@@ -461,7 +506,7 @@ def add_lamps(scene: Scene, visible_tris: np.ndarray, power: float = 60.0) -> in
         data = bpy.data.lights.new(f"lampara{count}", "POINT")
         data.energy = power
         data.color = (1.0, 0.78, 0.55)  # 2700 K aprox.
-        data.shadow_soft_size = 0.04
+        data.shadow_soft_size = 0.06
         lamp = bpy.data.objects.new(f"lampara{count}", data)
         lamp.location = center.tolist()
         bpy.context.scene.collection.objects.link(lamp)
@@ -504,27 +549,37 @@ def setup_cycles(samples: int, device: str) -> str:
     bs.cycles.caustics_reflective = False
     bs.cycles.caustics_refractive = False
     bs.view_settings.view_transform = "AgX"
-    bs.view_settings.look = "AgX - Base Contrast" if "AgX - Base Contrast" in [
-        i.identifier for i in bs.view_settings.bl_rna.properties["look"].enum_items] else "None"
+    looks = [i.identifier for i in bs.view_settings.bl_rna.properties["look"].enum_items]
+    bs.view_settings.look = next((x for x in ("AgX - Medium High Contrast", "AgX - Base Contrast") if x in looks), "None")
     return used
 
 
-def auto_expose(exr_path: Path, key: float = 0.18) -> float:
-    """Exposición como la de una cámara: lleva la luminancia media (logarítmica) del
-    interior a gris medio, ignorando ventanas quemadas y sombras muy profundas."""
+def develop(exr_path: Path, warmth: float, key: float = 0.18, ev: float | None = None,
+            max_ev: float = 4.0, balance: float = 0.85):
+    """Revelado como el de una cámara: balance de blancos (mundo gris del interior, con un
+    punto de calidez) y exposición que lleva la luminancia media a gris medio, ignorando
+    ventanas quemadas y sombras profundas. Devuelve (imagen corregida, EV)."""
     img = bpy.data.images.load(str(exr_path))
     px = np.empty(img.size[0] * img.size[1] * 4, dtype=np.float32)
     img.pixels.foreach_get(px)
-    rgb = px.reshape(-1, 4)[:, :3]
+    rgba = px.reshape(-1, 4)
+    rgb = rgba[:, :3]
     lum = rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
-    lum = lum[lum > 1e-5]
-    if not len(lum):
-        return 0.0
-    lo, hi = np.percentile(lum, [5, 92])
-    core = lum[(lum >= lo) & (lum <= hi)]
-    avg = float(np.exp(np.log(core).mean()))
-    bpy.data.images.remove(img)
-    return math.log2(key / avg)
+    ok = lum > 1e-6
+    if ok.any():
+        lo, hi = np.percentile(lum[ok], [5, 92])
+        core = ok & (lum >= lo) & (lum <= hi)
+        mean = rgb[core].mean(axis=0)
+        gains = mean.mean() / np.maximum(mean, 1e-6)
+        gains = gains ** balance * np.array([1.0 + warmth, 1.0, 1.0 - warmth], dtype=np.float32)
+        rgb *= gains.astype(np.float32)
+        lum = rgb @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+        if ev is None:
+            avg = float(np.exp(np.log(np.maximum(lum[core], 1e-6)).mean()))
+            ev = math.log2(key / avg)
+    ev = float(np.clip(ev or 0.0, -12.0, max_ev))
+    img.pixels.foreach_set(rgba.ravel())
+    return img, ev
 
 
 def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, light: str = "dia",
@@ -539,11 +594,11 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     lamps = 0
     if light == "noche":
         setup_night()
-        lamps = add_lamps(scene, tris, power=80.0)
+        lamps = add_lamps(scene, tris, power=150.0)
     else:
         setup_daylight(scene, light)
         if light == "tarde":
-            lamps = add_lamps(scene, tris, power=25.0)
+            lamps = add_lamps(scene, tris, power=100.0)
     portals = add_portals(scene, glass, eye)
     used = setup_cycles(samples, device)
 
@@ -558,9 +613,12 @@ def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, lig
     bpy.ops.render.render(write_still=True)
     t2 = time.perf_counter()
 
-    ev = auto_expose(exr) if exposure is None else exposure
+    warmth = {"dia": 0.03, "tarde": 0.08, "noche": 0.0}.get(light, 0.03)
+    # De noche la imagen debe quedar oscura: el límite de EV evita «día nublado»
+    img, ev = develop(exr, warmth, key=0.18 if light != "noche" else 0.08, ev=exposure,
+                      max_ev=4.0 if light != "noche" else 6.0,
+                      balance={"dia": 0.85, "tarde": 0.4, "noche": 0.0}.get(light, 0.85))
     bs.view_settings.exposure = ev
-    img = bpy.data.images.load(str(exr))
     bs.render.image_settings.file_format = "PNG"
     bs.render.image_settings.color_depth = "8"
     bs.render.image_settings.color_management = "FOLLOW_SCENE"
