@@ -61,6 +61,13 @@ plana tenía que inventarse la luz y, de paso, cambiaba materiales según la sem
    (suelo, muebles, latón). Se conserva su luminosidad y detalle y se toma de Cycles la
    cromaticidad (proporción R:G:B en luz lineal) a escala media, que no depende del brillo:
    la luz cálida de noche sigue cálida aunque la IA aclare. Determinista, unos 4 s.
+4. **Acabado de cámara** (`photo.py`): halo suave en luces quemadas, viñeteado leve y grano
+   fino con semilla fija.
+
+Cycles nivela la cámara y desplaza el encuadre (perspectiva de dos puntos, `camera.level_view`)
+para que las verticales salgan rectas como en una foto de interiorismo, si la vista de SketchUp
+está inclinada hasta 40°. En las lámparas, una textura de rejilla o con huecos se describe como
+ratán aunque el material se llame «tela».
 
 Si Cycles no está o falla, «Alta calidad» sigue con la imagen base sencilla (se anota en
 `logs/render.log`). «Preparar AIRE» lo instala (unos 700 MB); en instalaciones anteriores se

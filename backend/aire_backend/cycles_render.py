@@ -29,7 +29,7 @@ import bpy  # noqa: E402
 from mathutils import Matrix  # noqa: E402
 import numpy as np  # noqa: E402
 
-from aire_backend.camera import Camera  # noqa: E402
+from aire_backend.camera import Camera, level_view  # noqa: E402
 from aire_backend.scene import Scene, load_scene  # noqa: E402
 
 # --------------------------------------------------------------------------- materiales
@@ -349,9 +349,10 @@ def visible_triangles(scene: Scene) -> np.ndarray:
 
 
 # --------------------------------------------------------------------------- cámara y luz
-def setup_camera(scene: Scene, width: int) -> tuple[int, int]:
+def setup_camera(scene: Scene, width: int, level: bool = True) -> tuple[int, int]:
     cam = Camera.from_scene(scene.camera, scene.view)
     w, h = cam.resolution(width)
+    leveled = level_view(cam) if level else None
     data = bpy.data.cameras.new("cam")
     if cam.perspective:
         data.sensor_fit = "VERTICAL"
@@ -365,6 +366,8 @@ def setup_camera(scene: Scene, width: int) -> tuple[int, int]:
     obj = bpy.data.objects.new("cam", data)
     bpy.context.scene.collection.objects.link(obj)
     r, u, b = cam.basis()  # derecha, arriba, atrás (mundo)
+    if leveled is not None:  # verticales rectas, como en una foto de interiorismo
+        (r, u, b), data.shift_y = leveled
     m = np.eye(4)
     m[:3, 0], m[:3, 1], m[:3, 2], m[:3, 3] = r, u, b, cam.eye
     obj.matrix_world = Matrix(m.tolist())
@@ -594,13 +597,13 @@ def develop(exr_path: Path, warmth: float, key: float = 0.18, ev: float | None =
 
 
 def render(export_dir: str, out: str, width: int = 1920, samples: int = 256, light: str = "dia",
-           device: str = "auto", exposure: float | None = None) -> dict:
+           device: str = "auto", exposure: float | None = None, level: bool = True) -> dict:
     t0 = time.perf_counter()
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = load_scene(export_dir)
     tris = visible_triangles(scene)
     _, glass = build_meshes(scene, tris)
-    w, h = setup_camera(scene, width)
+    w, h = setup_camera(scene, width, level)
     eye = Camera.from_scene(scene.camera, scene.view).eye
     lamps = 0
     if light == "noche":
@@ -652,8 +655,10 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--light", choices=["dia", "tarde", "noche"], default="dia")
     ap.add_argument("--device", default="auto", help="auto, OPTIX, CUDA o CPU")
     ap.add_argument("--exposure", type=float, default=None, help="EV fijo (por defecto, automático)")
+    ap.add_argument("--keep-camera", action="store_true", help="no corregir las verticales")
     args = ap.parse_args(argv)
-    info = render(args.export_dir, args.out, args.width, args.samples, args.light, args.device, args.exposure)
+    info = render(args.export_dir, args.out, args.width, args.samples, args.light, args.device, args.exposure,
+                  level=not args.keep_camera)
     print(json.dumps(info, indent=2))
 
 

@@ -64,6 +64,7 @@ class KleinSettings:
     base_denoise: float = 1.0
     # 0-1: cuánto se fijan al final los colores a los de la imagen base (solo con base externa)
     color_lock: float = 0.0
+    photo: float = 0.0  # 0-1: acabado de cámara (halo en luces, viñeteado, grano)
     unet: str = "flux-2-klein-4b-fp8.safetensors"
     text_encoder: str = "qwen_3_4b.safetensors"
     vae: str = "flux2-vae.safetensors"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 import numpy as np
+from PIL import Image
 
 from .scene import Scene
 
@@ -35,6 +36,8 @@ def color_name(rgb) -> str | None:
             return "white"
         if l < 0.12:
             return "black"
+        if s >= 0.05 and r > b + 0.02:  # gris cálido (ribete beige mate de las lámparas)
+            return f"{tone}warm grey"
         return f"{tone}grey"
     deg = h * 360
     if (deg < 50 or deg >= 330) and l > 0.55 and s < 0.5:
@@ -70,7 +73,29 @@ def finish(name: str | None) -> str | None:
     return None
 
 
-def _describe(scene: Scene, m: int, albedo: np.ndarray | None, sel: np.ndarray) -> str:
+_LAMP = re.compile(r"pendant|lamp|l[aá]mpara|colgante|plaf[oó]n|shade|pantalla|chandelier|ara[ñn]a", re.I)
+
+
+def _openwork(scene: Scene, info: dict) -> bool:
+    """Textura con mucho contraste o con huecos (rejilla, trenzado de caña): en una lámpara
+    es ratán aunque el material se llame «tela» (pruebas 0.9: la IA lo hacía chapa perforada)."""
+    rel = (info.get("texture") or {}).get("file")
+    if not rel:
+        return False
+    try:
+        im = Image.open(scene.root / rel)
+        im.thumbnail((256, 256))
+        if "A" in im.getbands():
+            alpha = np.asarray(im.getchannel("A"), np.float32)
+            if (alpha < 128).mean() > 0.1:
+                return True
+        lum = np.asarray(im.convert("L"), np.float32) / 255.0
+    except (OSError, ValueError):
+        return False
+    return float(lum.std()) > 0.12
+
+
+def _describe(scene: Scene, m: int, albedo: np.ndarray | None, sel: np.ndarray, obj_name: str = "") -> str:
     info = scene.materials[m]
     if albedo is not None and sel.any():
         lin = ((albedo[sel].astype(np.float32) / 255.0) ** 2.2).mean(axis=0)
@@ -78,6 +103,8 @@ def _describe(scene: Scene, m: int, albedo: np.ndarray | None, sel: np.ndarray) 
     else:
         color = color_name(info.get("color"))
     kind = finish(info.get("name"))
+    if _LAMP.search(obj_name or "") and kind in (None, "fabric") and _openwork(scene, info):
+        kind = "woven natural rattan cane"
     return " ".join(w for w in (color, kind) if w)
 
 
@@ -103,7 +130,7 @@ def scene_items(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: li
         for m, c in sorted(zip(mats, counts), key=lambda t: -t[1])[:3]:
             if c < 0.15 * counts.sum():
                 break
-            d = _describe(scene, int(m), albedo, mask & (material == m))
+            d = _describe(scene, int(m), albedo, mask & (material == m), name)
             if d and d not in desc:
                 desc.append(d)
         items.append(f"{name} ({', '.join(desc)})" if desc else name)

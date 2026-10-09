@@ -23,6 +23,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .colormatch import lock_colors
+from .photo import photo_finish
 from .comfy import ComfyClient, ComfyError
 from .fidelity import load_lines, score
 from .passes import Passes, supersampled_shaded
@@ -112,6 +113,8 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
         img = Image.open(BytesIO(images[0]))
         if base is not None and getattr(s, "color_lock", 0) > 0:
             img = lock_colors(img, color_ref, s.color_lock)
+        if getattr(s, "photo", 0) > 0:
+            img = photo_finish(img, s.photo)
         path = out_dir / f"render_{i:02d}.png"
         img.save(path)
         item = {"file": path.name, "path": str(path), "seconds": round(secs, 1), "label": label(s),

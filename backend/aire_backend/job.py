@@ -31,8 +31,8 @@ from .workflows import KleinSettings
 QUALITY = {
 # cycles: la imagen base es un render con luz real (Cycles) en vez de la sencilla
     "rapida": {"width": 1024, "steps": 4, "upscale": 1.0},
-    "alta": {"width": 1920, "steps": 4, "upscale": 1.5, "cycles": True},
-    "comparar": {"width": 1920, "steps": 4, "upscale": 1.5, "sweep": True, "cycles": True},
+    "alta": {"width": 1920, "steps": 4, "upscale": 1.5, "cycles": True, "photo": 1.0},
+    "comparar": {"width": 1920, "steps": 4, "upscale": 1.5, "sweep": True, "cycles": True, "photo": 1.0},
 }
 
 ENGINE_PRESET = "flux2-klein4b"
@@ -90,17 +90,18 @@ def light_pass(home: Path, cfg: dict, export: Path, width: int, light: str, prog
 def klein_grid(base: KleinSettings, with_light: bool = False) -> list[KleinSettings]:
     """8 variantes para comparar (2 semillas).
     Con luz real (Cycles): cuánto puede cambiar la IA el render (1,0 = desde ruido, con el
-    render solo como referencia; 0,7 = casi el render) y si al final se fijan sus colores.
+    render solo como referencia; 0,7 = casi el render), colores fijados y acabado de cámara.
     Sin ella: directo a tamaño final frente a dos pasadas con distinta fuerza de repaso."""
     runs = []
     for k in range(2):
         seed = base.seed + k
         if with_light:
-            for d in (1.0, 0.7):
-                for lock in (0.0, 1.0):
-                    fix = " · colores fijados" if lock else ""
-                    runs.append(replace(base, seed=seed, base_denoise=d, color_lock=lock,
-                                        tag=f"luz real · libertad IA {d:.2f}{fix}"))
+            for d, lock, photo, tag in ((1.0, 0.0, 0.0, "IA sola"),
+                                        (1.0, 1.0, 0.0, "colores fijados"),
+                                        (1.0, 1.0, 1.0, "colores fijados · acabado de cámara"),
+                                        (0.7, 1.0, 1.0, "libertad IA 0.70 · colores fijados · acabado")):
+                runs.append(replace(base, seed=seed, base_denoise=d, color_lock=lock, photo=photo,
+                                    tag=f"luz real · {tag}"))
             continue
         runs.append(replace(base, seed=seed, upscale=1.0, tag="directo a tamaño final"))
         for d in (0.3, 0.45, 0.6):
@@ -134,7 +135,7 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
         f"Arrancando el motor… {int(s)} s (la primera vez tras encender el ordenador tarda más)"))
 
     base = KleinSettings(width=passes.width, height=passes.height, prompt=full_prompt, steps=q["steps"],
-                         upscale=q["upscale"], color_lock=1.0 if base_image is not None else 0.0,
+                         upscale=q["upscale"], color_lock=1.0 if base_image is not None else 0.0, photo=q.get("photo", 0.0),
                          seed=seed if seed is not None else random.randint(0, 2**31 - 1))
     if q.get("sweep"):
         runs = klein_grid(base, with_light=base_image is not None)

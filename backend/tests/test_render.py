@@ -302,3 +302,54 @@ def test_lock_colors_takes_reference_hue_keeps_detail():
     assert out[10, 41].sum() < out[10, 10].sum() - 150  # la franja oscura (luminancia de la IA) sigue
     same = lock_colors(Image.fromarray(ai), ref, strength=0)
     assert np.array_equal(np.asarray(same), ai)
+
+
+def test_lamp_with_openwork_texture_is_rattan(tmp_path):
+    from types import SimpleNamespace
+    import numpy as np
+    from PIL import Image
+    from aire_backend.prompt import _describe, color_name
+
+    grid = np.full((64, 64), 200, np.uint8)
+    grid[::8, :] = grid[:, ::8] = 40  # rejilla de caña
+    Image.fromarray(grid).convert("RGB").save(tmp_path / "rejilla.jpg")
+    Image.new("RGB", (64, 64), (190, 170, 140)).save(tmp_path / "lino.jpg")
+    scene = SimpleNamespace(root=tmp_path, materials={
+        1: {"name": "TELA BEGE", "color": [194, 168, 138], "texture": {"file": "rejilla.jpg"}},
+        2: {"name": "TELA BEGE", "color": [194, 168, 138], "texture": {"file": "lino.jpg"}}})
+    sel = np.zeros(1, bool)
+    assert _describe(scene, 1, None, sel, "pendant") == "beige woven natural rattan cane"
+    assert _describe(scene, 1, None, sel, "sofa") == "beige fabric"
+    assert _describe(scene, 2, None, sel, "pendant") == "beige fabric"
+    assert color_name((195, 186, 182)) == "light warm grey"
+
+
+def test_photo_finish_is_subtle_and_deterministic():
+    import numpy as np
+    from PIL import Image
+    from aire_backend.photo import photo_finish
+
+    img = Image.new("RGB", (200, 120), (128, 128, 128))
+    a, b = np.asarray(photo_finish(img), np.int16), np.asarray(photo_finish(img), np.int16)
+    assert np.array_equal(a, b)
+    assert abs(a[60, 100].mean() - 128) < 12  # el centro casi no cambia
+    assert a[:10, :10].mean() < a[55:65, 95:105].mean()  # esquinas algo más oscuras
+
+
+def test_level_view_straightens_verticals():
+    import math
+    import numpy as np
+    from aire_backend.camera import Camera, level_view
+
+    pitch = math.radians(-20)
+    cam = Camera(eye=np.zeros(3), target=np.array([0.0, math.cos(pitch), math.sin(pitch)]),
+                 up=np.array([0.0, 0.0, 1.0]), perspective=True, vfov=math.radians(50),
+                 ortho_height=1.0, aspect=1.5)
+    (r, u, b), shift = level_view(cam)
+    assert np.allclose(u, [0, 0, 1]) and abs(b[2]) < 1e-9  # cámara nivelada
+    # el centro de la imagen sigue apuntando al mismo sitio
+    assert math.isclose(shift, math.tan(pitch) / (2 * math.tan(math.radians(25))))
+    assert shift < 0
+    level = Camera(eye=np.zeros(3), target=np.array([0.0, 1.0, 0.0]), up=np.array([0.0, 0.0, 1.0]),
+                   perspective=True, vfov=1.0, ortho_height=1.0, aspect=1.5)
+    assert level_view(level) is None

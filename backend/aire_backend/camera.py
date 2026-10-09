@@ -89,3 +89,26 @@ class Camera:
             "cy": height / 2.0,
             "perspective": self.perspective,
         }
+
+
+def level_view(cam: Camera, max_pitch_deg: float = 40.0):
+    """Corrección de verticales (perspectiva de dos puntos, como un objetivo descentrable).
+
+    Las fotos de interiorismo se hacen con la cámara nivelada para que las paredes salgan
+    rectas; si la vista de SketchUp mira algo hacia abajo o hacia arriba, las verticales
+    convergen y la imagen delata que es 3D. Se nivela la cámara y se desplaza el encuadre
+    (shift) para que el centro de la imagen siga en el mismo punto.
+    Devuelve (filas derecha, arriba, atrás; shift_y en altos de imagen, como Blender con
+    sensor_fit VERTICAL) o None si no procede (paralela, muy picada o ya nivelada)."""
+    if not cam.perspective:
+        return None
+    f = cam.direction
+    pitch = math.asin(float(np.clip(f[2], -1.0, 1.0)))
+    if abs(pitch) < math.radians(0.5) or abs(pitch) > math.radians(max_pitch_deg):
+        return None
+    flat = np.array([f[0], f[1], 0.0])
+    flat /= np.linalg.norm(flat)
+    up = np.array([0.0, 0.0, 1.0])
+    r = np.cross(flat, up)
+    shift = math.tan(pitch) / (2.0 * math.tan(cam.vfov / 2.0))
+    return np.stack([r, up, -flat]), shift
