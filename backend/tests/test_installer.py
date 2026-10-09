@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from aire_backend import installer as inst
 from aire_backend import job as jobmod
@@ -421,3 +422,41 @@ def test_high_quality_job_uses_two_passes(tmp_path, monkeypatch, fake_server):  
     result = jobmod.run_job(home, export, "", "modelo", "dia", "alta", 1, Progress(None, jobmod.STEPS))
     s = result["images"][0]["settings"]
     assert s["width"] == 480 and s["upscale"] == 1.5
+
+
+def test_high_quality_uses_cycles_render_as_base(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    home = tmp_path / "AIRE"
+    home.mkdir()
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "cycles_ok": True,
+                                                  "comfy_dir": str(fake_models(tmp_path))}))
+    monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
+    monkeypatch.setattr(jobmod.cycles_engine, "installed", lambda h, c: True)
+    calls = []
+
+    def fake_render(h, export, out, width, light, **kw):
+        calls.append((width, light))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (width, 300), (200, 180, 160)).save(out)
+        return {}
+
+    monkeypatch.setattr(jobmod.cycles_engine, "render", fake_render)
+    monkeypatch.setitem(jobmod.QUALITY, "alta", {**jobmod.QUALITY["alta"], "width": 480})
+    export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
+    jobmod.run_job(home, export, "", "modelo", "noche", "alta", 1, Progress(None, jobmod.STEPS))
+    assert calls == [(480, "noche")]
+    assert list(export.glob("passes_*/base_externa.png"))  # la IA parte del render de Cycles
+
+
+def test_cycles_failure_falls_back_to_simple_base(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    home = tmp_path / "AIRE"
+    home.mkdir()
+    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "cycles_ok": True,
+                                                  "comfy_dir": str(fake_models(tmp_path))}))
+    monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
+    monkeypatch.setattr(jobmod.cycles_engine, "installed", lambda h, c: True)
+    monkeypatch.setattr(jobmod.cycles_engine, "render", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    monkeypatch.setitem(jobmod.QUALITY, "alta", {**jobmod.QUALITY["alta"], "width": 480})
+    export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
+    result = jobmod.run_job(home, export, "", "modelo", "dia", "alta", 1, Progress(None, jobmod.STEPS))
+    assert result["images"]
+    assert "luz real no disponible" in (home / "logs" / "render.log").read_text(encoding="utf-8")

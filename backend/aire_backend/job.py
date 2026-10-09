@@ -18,8 +18,9 @@ import traceback
 from dataclasses import replace
 from pathlib import Path
 
-from . import comfyctl
+from . import comfyctl, cycles_engine
 from .comfy import ComfyError
+from .installer import Installer
 from .progress import Progress, UserError
 from .models import download, missing_files
 from .prompt import build_edit_prompt
@@ -28,15 +29,16 @@ from .workflows import KleinSettings
 
 # width = tamaño final; upscale > 1 → 1.ª pasada a width/upscale y 2.ª pasada de detalle
 QUALITY = {
+# cycles: la imagen base es un render con luz real (Cycles) en vez de la sencilla
     "rapida": {"width": 1024, "steps": 4, "upscale": 1.0},
-    "alta": {"width": 1920, "steps": 4, "upscale": 1.5},
-    "comparar": {"width": 1920, "steps": 4, "upscale": 1.5, "sweep": True},
+    "alta": {"width": 1920, "steps": 4, "upscale": 1.5, "cycles": True},
+    "comparar": {"width": 1920, "steps": 4, "upscale": 1.5, "sweep": True, "cycles": True},
 }
 
 ENGINE_PRESET = "flux2-klein4b"
 
-STEPS = ["Preparando la escena", "Descargando el modelo FLUX", "Arrancando el motor",
-         "Creando la imagen", "Terminando"]
+STEPS = ["Preparando la escena", "Descargando el modelo FLUX", "Calculando la luz real",
+         "Arrancando el motor", "Creando la imagen", "Terminando"]
 
 
 def ensure_models(cfg: dict, progress: Progress, preset: str = ENGINE_PRESET) -> None:
@@ -57,6 +59,32 @@ def ensure_models(cfg: dict, progress: Progress, preset: str = ENGINE_PRESET) ->
     except OSError as e:
         raise UserError("Se ha cortado la descarga del modelo FLUX. Vuelve a pulsar «Crear imagen»: "
                         "seguirá donde se quedó.") from e
+
+
+def light_pass(home: Path, cfg: dict, export: Path, width: int, light: str, progress: Progress) -> Path | None:
+    """Render con luz real (Cycles) para usarlo como imagen base. Si algo falla, se sigue con
+    la imagen base sencilla: la imagen sale igual, solo con menos realismo."""
+    log = home / "logs" / "render.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if not cycles_engine.installed(home, cfg):
+            uv = cycles_engine.uv_path(home)
+            if not uv.exists():
+                return None
+            progress.step(2, "Solo la primera vez: instalando el motor de luz (unos 400 MB)…")
+            Installer(home, uv, progress, home / "logs" / "install.log").install_cycles()
+            cfg.update(json.loads((home / "config.json").read_text(encoding="utf-8")))
+            if not cfg.get("cycles_ok"):
+                return None
+        progress.step(2, "Calculando sol, cielo y lámparas…")
+        out = export.parent / "luz" / f"cycles_{light}.png"
+        cycles_engine.render(home, export, out, width, light if light in ("dia", "tarde", "noche") else "dia",
+                             on_wait=lambda s: progress.update(f"Calculando sol, cielo y lámparas… {int(s)} s"))
+        return out
+    except Exception as e:  # noqa: BLE001 - la luz real es una mejora, no un requisito
+        with open(log, "a", encoding="utf-8") as lf:
+            lf.write(f"\n=== {time.ctime()} luz real no disponible: {e!r}\n")
+        return None
 
 
 def klein_grid(base: KleinSettings) -> list[KleinSettings]:
@@ -88,7 +116,12 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
                                     albedo=a["albedo"])
     ensure_models(cfg, progress)
 
-    progress.step(2, "Un momento…")
+    if base_image is None and q.get("cycles"):
+        base_image = light_pass(home, cfg, export, passes.width, light, progress)
+    else:
+        progress.step(2, "No hace falta")
+
+    progress.step(3, "Un momento…")
     client = comfyctl.ensure(home, cfg, on_wait=lambda s: progress.update(
         f"Arrancando el motor… {int(s)} s (la primera vez tras encender el ordenador tarda más)"))
 
@@ -100,7 +133,7 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
         runs = [replace(base, seed=base.seed + i) for i in range(max(1, variants))]
 
     out_dir = export.parent / "renders"
-    progress.step(3, "", 0)
+    progress.step(4, "", 0)
 
     def on_each(i, n):
         msg = f"Imagen {i + 1} de {n}…" if n > 1 else "Creando la imagen…"
@@ -115,7 +148,7 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
                             "(juegos, navegadores con vídeo) y prueba con calidad «Rápida».") from e
         raise
 
-    progress.step(4)
+    progress.step(5)
     result = {"folder": str(out_dir), "prompt": full_prompt, "style": style, "light": light,
               "quality": quality, "user_prompt": prompt, "engine": ENGINE_PRESET,
               "created": time.time(), "images": results}

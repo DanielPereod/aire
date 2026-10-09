@@ -45,6 +45,23 @@ Cambios de la 0.7 tras las primeras imágenes con FLUX (detalle perdido, poco re
   tiradores, grifos, botes) y cada acabado, y un aspecto de fotografía real.
 - «Comparar» ahora compara directo a 1920 frente a dos pasadas con repaso 0,3/0,45/0,6.
 
+## v0.9: luz real con Cycles + IA («Alta calidad»)
+
+Las pruebas de la 0.7/0.8 mostraron el límite de la IA sola: con una imagen base de luz
+plana tenía que inventarse la luz y, de paso, cambiaba materiales según la semilla. Ahora:
+
+1. `cycles.py` renderiza la exportación con Cycles (Blender como módulo `bpy`, en su propio
+   entorno `cycles/venv`, Python 3.13): geometría y cámara exactas, materiales PBR deducidos
+   del nombre (mármol, latón, tela, cristal, cortina…), sol y cielo con la orientación de
+   SketchUp, ventanas como portales de luz y lámparas encendidas por la tarde y la noche.
+   Revelado automático (exposición, cielo neutro, AgX). ~25 s a 1920 px en una RTX 5060.
+2. Ese render es la imagen base de FLUX.2 klein (dos pasadas, 1920 px), que lo convierte
+   en fotografía con la luz y los materiales ya resueltos. ~45 s más.
+
+Si Cycles no está o falla, «Alta calidad» sigue con la imagen base sencilla (se anota en
+`logs/render.log`). «Preparar AIRE» lo instala (unos 400 MB); en instalaciones anteriores se
+instala solo en el primer render de alta calidad.
+
 ## Idea central: G-buffer exacto desde el modelo
 
 Cualquier modelo de difusión acaba recibiendo imágenes 2D. La diferencia está en

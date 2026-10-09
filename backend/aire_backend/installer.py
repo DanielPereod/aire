@@ -26,7 +26,7 @@ import time
 import zipfile
 from pathlib import Path
 
-from . import comfyctl
+from . import comfyctl, cycles_engine
 from .hardware import gpus, ram_gb
 from .models import PRESETS, download, fetch, missing_files, recommend, weight_dtype_for
 from .progress import Progress, UserError
@@ -51,6 +51,7 @@ STEPS = [
     "Comprobando tu ordenador",
     "Descargando el motor de render",
     "Instalando el motor de render",
+    "Instalando el motor de luz real",
     "Descargando el modelo de inteligencia artificial",
     "Probando que todo funciona",
 ]
@@ -239,10 +240,25 @@ class Installer:
         self.cfg["comfy_env_ok"] = True
         save_config(self.home, self.cfg)
 
+    def install_cycles(self) -> None:
+        """Cycles (luz real) para «Alta calidad». Si falla no bloquea: AIRE sigue funcionando
+        con la imagen base sencilla y se reintenta en el siguiente render."""
+        self.progress.step(4, "Instalando el motor de luz real…")
+        if cycles_engine.installed(self.home, self.cfg):
+            return
+        try:
+            cycles_engine.install(self.home, self.uv, self.run)
+            self.cfg["cycles_ok"] = True
+        except RuntimeError as e:
+            with open(self.log, "a", encoding="utf-8") as lf:
+                lf.write(f"Cycles no instalado ({e}); se seguirá sin él\n")
+            self.cfg["cycles_ok"] = False
+        save_config(self.home, self.cfg)
+
     def get_models(self, attempts: int = 6) -> None:
         preset = self.cfg["preset"]
         todo = missing_files(preset, self.comfy_dir)
-        self.progress.step(4, f"{len(todo)} ficheros por descargar" if todo else "Ya descargado", 0)
+        self.progress.step(5, f"{len(todo)} ficheros por descargar" if todo else "Ya descargado", 0)
         speed = SpeedMeter()
 
         def on_progress(f, i, n, done, total):
@@ -277,7 +293,7 @@ class Installer:
         save_config(self.home, self.cfg)
 
     def smoke_test(self) -> None:
-        self.progress.step(5, "Arrancando el motor por primera vez (puede tardar un par de minutos)…")
+        self.progress.step(6, "Arrancando el motor por primera vez (puede tardar un par de minutos)…")
         self.cfg.update(comfy_dir=str(self.comfy_dir), comfy_python=str(venv_python(self.comfy_venv)))
         save_config(self.home, self.cfg)
         client = comfyctl.ensure(self.home, self.cfg, timeout=900, on_wait=lambda t: self.progress.update(
@@ -297,6 +313,7 @@ class Installer:
         self.check_system()
         self.get_comfy()
         self.install_comfy()
+        self.install_cycles()
         self.get_models()
         self.smoke_test()
         self.cfg["ready"] = True
