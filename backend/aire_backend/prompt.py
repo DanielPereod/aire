@@ -43,8 +43,7 @@ def color_name(rgb) -> str | None:
     if (deg < 50 or deg >= 330) and l > 0.55 and s < 0.5:
         return "beige" if deg >= 20 else "light pink"
     if 15 <= deg < 45 and l <= 0.55:
-        # marrón muy saturado y rojizo = metal cobrizo (patas de taburete), no madera
-        return f"{tone}copper brown" if s >= 0.48 and deg < 25 else f"{tone}brown"
+        return f"{tone}brown"
     names = [(15, "red"), (45, "orange"), (65, "yellow"), (160, "green"), (200, "teal"),
              (255, "blue"), (290, "purple"), (330, "pink"), (360, "red")]
     hue = next(n for limit, n in names if deg < limit)

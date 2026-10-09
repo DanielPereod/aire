@@ -451,8 +451,9 @@ EXTERIOR = True
 
 
 def _exterior_view(nt, bg, sky, strength: float) -> None:
-    """Lo que se ve por las ventanas: cielo real (sin neutralizar), una línea de árboles
-    desenfocada en el horizonte y suelo de jardín, como el exterior fuera de foco de una foto.
+    """Lo que se ve por las ventanas: cielo real (sin neutralizar), árboles y jardín claros y
+    sobreexpuestos, como el exterior quemado de una foto de interiores pero con un matiz de
+    color (pruebas 0.9f: un jardín oscuro parecía una pared pintada).
     Solo para rayos de cámara; la luz de la escena sigue saliendo del cielo neutro."""
     N = nt.nodes
     tc = N.new("ShaderNodeTexCoord")
@@ -473,8 +474,8 @@ def _exterior_view(nt, bg, sky, strength: float) -> None:
     nt.links.new(top.outputs["Result"], trees.inputs[1])
     green = N.new("ShaderNodeMix")
     green.data_type = "RGBA"
-    green.inputs["A"].default_value = (0.04, 0.07, 0.03, 1.0)
-    green.inputs["B"].default_value = (0.18, 0.26, 0.10, 1.0)
+    green.inputs["A"].default_value = (0.22, 0.27, 0.18, 1.0)
+    green.inputs["B"].default_value = (0.40, 0.46, 0.32, 1.0)
     nt.links.new(noise.outputs["Fac"], green.inputs["Factor"])
     sky_bw = N.new("ShaderNodeRGBToBW")
     nt.links.new(sky.outputs["Color"], sky_bw.inputs["Color"])
@@ -489,7 +490,7 @@ def _exterior_view(nt, bg, sky, strength: float) -> None:
     ground.data_type = "RGBA"
     ground.blend_type = "MULTIPLY"
     ground.inputs["Factor"].default_value = 1.0
-    ground.inputs["A"].default_value = (0.14, 0.19, 0.09, 1.0)
+    ground.inputs["A"].default_value = (0.50, 0.52, 0.44, 1.0)
     nt.links.new(sky_bw.outputs["Val"], ground.inputs["B"])
     below = N.new("ShaderNodeMath")
     below.operation = "LESS_THAN"
@@ -506,7 +507,7 @@ def _exterior_view(nt, bg, sky, strength: float) -> None:
     nt.links.new(view.outputs["Result"], view2.inputs["A"])
     nt.links.new(ground.outputs["Result"], view2.inputs["B"])
     ext = N.new("ShaderNodeBackground")
-    ext.inputs["Strength"].default_value = 3.0 * strength  # más claro que el interior
+    ext.inputs["Strength"].default_value = 5.0 * strength  # sobreexpuesto, como en una foto
     nt.links.new(view2.outputs["Result"], ext.inputs["Color"])
     out = N.get("World Output")
     lp = N.new("ShaderNodeLightPath")
