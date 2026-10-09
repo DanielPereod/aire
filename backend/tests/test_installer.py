@@ -570,3 +570,20 @@ def test_no_ai_quality_is_the_cycles_render_with_camera_finish(tmp_path, monkeyp
     img = Image.open(result["images"][0]["path"])
     assert img.size == (480, 300) and img.getpixel((0, 0)) != (200, 180, 150)  # viñeta del acabado
     assert (export.parent / "renders" / "result.json").exists()
+
+
+def test_enhance_starts_from_raw_cycles_and_adds_a_new_image(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    from aire_backend import enhance
+    from tests.test_render import FakeComfy
+    _, home, image = _edit_env(tmp_path, monkeypatch, fake_server)
+    monkeypatch.setattr(enhance.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
+    raw = image.parent.parent / "luz" / "cycles_dia.png"
+    raw.parent.mkdir()
+    Image.new("RGB", (640, 400), (210, 200, 190)).save(raw)
+    res = enhance.run_enhance(home, image, tmp_path / "jobs" / "c", 3, Progress(None, enhance.STEPS))
+    assert res["kind"] == "ia" and res["source"] == str(image)
+    out = Image.open(res["images"][0]["path"])
+    assert out.size == (640, 400)
+    enc = next(n for n in FakeComfy.queued[-1].values() if n["class_type"] == "TextEncodeQwenImage21")
+    assert "catalog photograph" in enc["inputs"]["prompt"]
+    assert FakeComfy.freed >= 1

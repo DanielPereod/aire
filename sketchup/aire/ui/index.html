@@ -297,7 +297,7 @@
             <div class="seg" id="variants"></div>
           </div>
         </div>
-        <div class="muted hidden" id="no-ai-note" style="font-size:12.5px">Sin IA: la imagen es el render con luz real de tu modelo tal cual, sin estilo ni cambios. Fiel al 100 %.</div>
+        <div class="muted hidden" id="no-ai-note" style="font-size:12.5px">Sin IA: la imagen es el render con luz real de tu modelo tal cual, fiel al 100 %. Si te gusta, en la galería puedes pulsar «Procesar con IA» para darle acabado de foto.</div>
       </div>
       <div class="hint"><svg class="i"><use href="#i-info"/></svg>Encuadra en SketchUp la vista que quieres. Para un aspecto de foto real, pon la cámara a la altura de los ojos.</div>
       <button class="primary" id="btn-render"><svg class="i"><use href="#i-spark"/></svg><span>Crear imagen de esta vista</span></button>
@@ -377,7 +377,7 @@ const STYLES = [["modelo", "Como el modelo", ["#d9d2c5", "#8a7a66", "#5f6f6a"]],
                 ["lujo", "Lujo", ["#1f2321", "#c9a35b", "#e9e3d8"]],
                 ["minimalista", "Minimalista", ["#ffffff", "#e6e4e0", "#2b2b2b"]]];
 const LIGHTS = [["dia", "De día", "i-sun"], ["tarde", "Atardecer", "i-sunset"], ["noche", "De noche", "i-moon"]];
-const QUALITIES = [["rapida", "Rápida", "~30 s"], ["alta", "Alta calidad", "~3 min"], ["real", "Sin IA", "~2 min"]];
+const QUALITIES = [["real", "Sin IA", "~1 min"], ["rapida", "Rápida", "~30 s"], ["alta", "Alta calidad", "~2 min"]];
 const VARIANTS = [["1", "1"], ["2", "2"], ["4", "4"]];
 const NAMES = Object.fromEntries([...STYLES, ...LIGHTS].map(([k, v]) => [k, v]));
 const MAX_REFS = 3;
@@ -537,10 +537,10 @@ function renderGallery(items) {
     if (it.thumb) img.src = it.thumb;
     img.onclick = () => call("open_image", it.path);
     card.appendChild(img);
-    if (it.kind === "edit") {
+    if (it.kind === "edit" || it.kind === "ia") {
       const badge = document.createElement("span");
       badge.className = "badge";
-      badge.textContent = "Editada";
+      badge.textContent = it.kind === "ia" ? "Con IA" : "Editada";
       card.appendChild(badge);
     }
     const over = document.createElement("div");
@@ -561,7 +561,13 @@ function renderGallery(items) {
     keep.title = "Guardar una copia";
     keep.innerHTML = icon("i-download");
     keep.onclick = () => call("save_image", it.path);
-    actions.append(edit, keep);
+    const ai = document.createElement("button");
+    ai.className = "btn";
+    ai.innerHTML = icon("i-spark") + "IA";
+    ai.title = "Procesar con IA: acabado de foto, sin cambiar la cámara ni los objetos (1-2 min)";
+    ai.onclick = () => { call("enhance", it.path); toast("Procesando con IA… aparecerá en la galería"); };
+    if (it.kind === "ia") actions.append(edit, keep);
+    else actions.append(ai, edit, keep);
     over.append(info, actions);
     card.appendChild(over);
     g.appendChild(card);
@@ -808,7 +814,9 @@ function aiMode() {  // «Sin IA» no usa estilo, indicaciones ni variantes
   document.querySelectorAll("[data-ai]").forEach(el => el.classList.toggle("off", noAi));
   $("no-ai-note").classList.toggle("hidden", !noAi);
 }
-seg("qualities", QUALITIES, "quality", "alta", aiMode);
+// 0.12: «Sin IA» es lo normal; la IA se aplica después desde la galería («Procesar con IA»)
+if (prefs.qv !== 2) { prefs.quality = "real"; prefs.qv = 2; save(); }
+seg("qualities", QUALITIES, "quality", "real", aiMode);
 aiMode();
 seg("variants", VARIANTS, "variants", "1");
 renderRefs();

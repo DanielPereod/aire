@@ -49,6 +49,7 @@ module Aire
       on('edit_load') { |_ctx, path| edit_load(path) }
       on('pick_reference') { |_ctx| pick_reference }
       on('edit') { |_ctx, json| start_edit(JSON.parse(json)) }
+      on('enhance') { |_ctx, path| start_enhance(path.to_s) }
       @dialog.set_on_closed { stop_timer }
     end
 
@@ -248,6 +249,23 @@ module Aire
       Runner.python('edit', args + ['--progress', progress])
       @job_dir = job_dir
       @job_kind = 'edit'
+      push_state
+    end
+
+    # «Procesar con IA» sobre una imagen ya creada: sale como imagen nueva en la galería
+    def start_enhance(image)
+      return notify('AIRE todavía no está preparado.') unless Env.ready?
+      return notify('Espera a que termine la imagen en curso.') if @job_dir && running?(task_state(File.join(@job_dir, 'job.json')))
+      return notify('No se encuentra esa imagen.') unless File.exist?(image)
+
+      job_dir = File.join(Env.home, 'jobs', "#{Time.now.strftime('%Y%m%d-%H%M%S')}-ia")
+      FileUtils.mkdir_p(job_dir)
+      progress = File.join(job_dir, 'job.json')
+      File.write(progress, JSON.generate(state: 'running', steps: ['Preparando la imagen'], step: 0,
+                                         title: 'Preparando la imagen', detail: '', updated: Time.now.to_f))
+      Runner.python('enhance', ['--home', Env.home, '--image', image, '--job-dir', job_dir, '--progress', progress])
+      @job_dir = job_dir
+      @job_kind = 'render'
       push_state
     end
 
