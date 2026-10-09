@@ -5,13 +5,17 @@ guiados por el **modelo 3D** (profundidad, normales, líneas, ids de objeto,
 materiales) en lugar de por una captura de pantalla. Incluye edición tipo chat
 ("pon la silla roja") con máscaras exactas por objeto.
 
-Estado: **P1** (exportador y pases de control) y **P2** (render con Z-Image +
-ControlNet vía ComfyUI, con métrica de fidelidad). Ver
-[docs/ARQUITECTURA.md](docs/ARQUITECTURA.md), [docs/P1.md](docs/P1.md) y [docs/P2.md](docs/P2.md).
+**Instalación**: solo hay que instalar el `.rbz` en SketchUp y pulsar «Preparar AIRE»
+en su ventana; la extensión instala el resto sola (ver [docs/GUIA.md](docs/GUIA.md) para
+usuarios y [docs/INSTALACION.md](docs/INSTALACION.md) para el detalle técnico).
+
+Estado: P1 (exportador y pases de control), P2 (render con Z-Image + ControlNet vía
+ComfyUI, con métrica de fidelidad) e instalación automática con ventana en SketchUp.
+Ver [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md), [docs/P1.md](docs/P1.md) y [docs/P2.md](docs/P2.md).
 
 ```
 sketchup/        extensión Ruby (exportador aire-scene)
-backend/         backend Python (pases de control, máscaras; luego difusión y agente)
+backend/         backend Python (pases, render, instalador; va dentro del .rbz)
 tools/           empaquetado .rbz
 docs/            arquitectura, decisiones y guías de cada prototipo
 ```

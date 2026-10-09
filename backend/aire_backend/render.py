@@ -66,6 +66,38 @@ def contact_sheet(items: list[tuple[Image.Image, str]], cols: int = 4, tile_w: i
     return sheet
 
 
+def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZImageSettings], out_dir: Path,
+                on_each=None, thumbs: bool = False) -> list[dict]:
+    """Sube los pases, renderiza cada ajuste y devuelve resultados con fidelidad.
+    on_each(i, n, fase) se llama antes de cada render para informar del avance."""
+    depth = client.upload_image(pdir / "depth_control.png")
+    lines = client.upload_image(pdir / "edges_control.png")
+    albedo = client.upload_image(pdir / "albedo.png")
+    ref_lines = load_lines(pdir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    results = []
+    for i, s in enumerate(runs):
+        if on_each:
+            on_each(i, len(runs))
+        wf = zimage_control(s, depth, lines, albedo, prefix=f"aire/{out_dir.name}_{i:02d}")
+        t0 = time.perf_counter()
+        images = client.run(wf, check=(i == 0))
+        secs = time.perf_counter() - t0
+        img = Image.open(BytesIO(images[0]))
+        path = out_dir / f"render_{i:02d}.png"
+        img.save(path)
+        item = {"file": path.name, "path": str(path), "seconds": round(secs, 1), "label": label(s),
+                "fidelity": score(img, ref_lines), "settings": s.to_dict()}
+        if thumbs:
+            thumb = img.convert("RGB")
+            thumb.thumbnail((640, 640))
+            tpath = out_dir / f"render_{i:02d}_thumb.jpg"
+            thumb.save(tpath, quality=85)
+            item["thumb"] = str(tpath)
+        results.append(item)
+    return results
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="Render IA (Z-Image + ControlNet) desde una exportación AIRE")
     ap.add_argument("export_dir")
@@ -107,30 +139,21 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     client = ComfyClient(args.server)
+
+    def on_each(i, n):
+        print(f"[{i + 1}/{n}] {label(runs[i])}…")
+
     try:
-        depth = client.upload_image(pdir / "depth_control.png")
-        lines = client.upload_image(pdir / "edges_control.png")
-        albedo = client.upload_image(pdir / "albedo.png")
+        results = run_renders(client, passes, pdir, runs, out_dir, on_each)
     except ComfyError as e:
         raise SystemExit(str(e))
-
+    for r in results:
+        print(f"  {r['file']}: {r['seconds']}s · recall {r['fidelity']['recall']:.3f} · "
+              f"spurious {r['fidelity']['spurious']:.3f}")
     ref_lines = load_lines(pdir)
-    results, sheet_items = [], []
-    for i, s in enumerate(runs):
-        wf = zimage_control(s, depth, lines, albedo, prefix=f"aire/{out_dir.name}_{i:02d}")
-        t0 = time.perf_counter()
-        try:
-            images = client.run(wf, check=(i == 0))
-        except ComfyError as e:
-            raise SystemExit(str(e))
-        secs = time.perf_counter() - t0
-        img = Image.open(BytesIO(images[0]))
-        path = out_dir / f"render_{i:02d}.png"
-        img.save(path)
-        fid = score(img, ref_lines)
-        results.append({"file": path.name, "seconds": round(secs, 1), "fidelity": fid, "settings": s.to_dict()})
-        sheet_items.append((img, f"{label(s)} | recall {fid['recall']:.2f} · spur {fid['spurious']:.2f}"))
-        print(f"[{i + 1}/{len(runs)}] {label(s)} → {secs:.1f}s · recall {fid['recall']:.3f} · spurious {fid['spurious']:.3f}")
+    sheet_items = [(Image.open(out_dir / r["file"]),
+                    f"{r['label']} | recall {r['fidelity']['recall']:.2f} · spur {r['fidelity']['spurious']:.2f}")
+                   for r in results]
 
     (out_dir / "meta.json").write_text(json.dumps({
         "export": str(scene.root), "passes": str(pdir), "prompt": prompt, "runs": results,

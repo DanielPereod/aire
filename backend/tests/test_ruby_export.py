@@ -87,3 +87,11 @@ def test_section_plane_exported_in_world(scene):
     suelo = scene.tri_object == obj_by_name(scene, "Suelo")["id"]
     assert all(scene.clip_sets[c] == [0] for c in scene.tri_clip[hija])
     assert (scene.tri_clip[suelo] == 0).all() and scene.clip_sets[0] == []
+
+
+def test_ruby_window_logic():
+    if not shutil.which("ruby"):
+        pytest.skip("ruby no disponible")
+    proc = subprocess.run(["ruby", str(REPO / "sketchup" / "test" / "window_test.rb")],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr

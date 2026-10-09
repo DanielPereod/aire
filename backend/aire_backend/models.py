@@ -112,28 +112,44 @@ def weight_dtype_for(vram_gb: float | None) -> str:
     return "default" if vram_gb and vram_gb >= 16 else "fp8_e4m3fn"
 
 
-def download(preset_id: str, comfy_dir: Path) -> None:
-    preset = PRESETS[preset_id]
-    for name in preset.files:
-        f = FILES[name]
-        dest = comfy_dir / "models" / f.folder / f.name
-        if dest.exists() and dest.stat().st_size > 0:
-            print(f"  ✓ {f.folder}/{f.name}")
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_suffix(dest.suffix + ".part")
-        print(f"  ↓ {f.folder}/{f.name}")
-        with urllib.request.urlopen(f.url) as r, open(tmp, "wb") as out:
-            total = int(r.headers.get("Content-Length") or 0)
+def missing_files(preset_id: str, comfy_dir: Path) -> list[ModelFile]:
+    return [FILES[n] for n in PRESETS[preset_id].files
+            if not (comfy_dir / "models" / FILES[n].folder / n).is_file()
+            or (comfy_dir / "models" / FILES[n].folder / n).stat().st_size == 0]
+
+
+def fetch(url: str, dest: Path, on_bytes=None, chunk: int = 1 << 22) -> None:
+    """Descarga reanudable: si existe dest.part continúa donde se quedó (Range)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".part")
+    done = tmp.stat().st_size if tmp.exists() else 0
+    req = urllib.request.Request(url, headers={"User-Agent": "AIRE", **({"Range": f"bytes={done}-"} if done else {})})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        if done and r.status != 206:  # el servidor no admite reanudar: desde cero
             done = 0
-            while chunk := r.read(1 << 22):
-                out.write(chunk)
-                done += len(chunk)
-                if total:
-                    sys.stdout.write(f"\r    {done / 2**30:.2f} / {total / 2**30:.2f} GB")
-                    sys.stdout.flush()
-        tmp.replace(dest)
-        print()
+        total = int(r.headers.get("Content-Length") or 0) + done
+        with open(tmp, "ab" if done else "wb") as out:
+            while data := r.read(chunk):
+                out.write(data)
+                done += len(data)
+                if on_bytes:
+                    on_bytes(done, total)
+    tmp.replace(dest)
+
+
+def download(preset_id: str, comfy_dir: Path, on_progress=None) -> None:
+    """on_progress(fichero, índice, nº ficheros, bytes, total) para mostrar el avance."""
+    todo = missing_files(preset_id, comfy_dir)
+    for i, f in enumerate(todo):
+        dest = comfy_dir / "models" / f.folder / f.name
+        if on_progress is None:
+            print(f"  ↓ {f.folder}/{f.name}")
+            cb = lambda d, t: (sys.stdout.write(f"\r    {d / 2**30:.2f} / {t / 2**30:.2f} GB"), sys.stdout.flush())  # noqa: E731
+        else:
+            cb = lambda d, t, f=f, i=i: on_progress(f, i, len(todo), d, t)  # noqa: E731
+        fetch(f.url, dest, cb)
+        if on_progress is None:
+            print()
 
 
 def main(argv: list[str] | None = None) -> None:

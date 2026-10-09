@@ -15,6 +15,7 @@ captura de pantalla.
 | Ediciones del chat | **Solo sobre el render** (no tocan el modelo de SketchUp) |
 | Pruebas | El usuario tiene escenas y una **RTX 5060 (8 GB)** |
 | Motor local | **ComfyUI** en modo servidor, controlado por el backend |
+| Usuario final | Persona **no técnica**: solo instala el `.rbz`; todo lo demás, desde la ventana de AIRE |
 
 ## Idea central: G-buffer exacto desde el modelo
 
@@ -106,5 +107,6 @@ Cada edición es una versión nueva del render (historial con deshacer).
   métrica de fidelidad, barrido de ajustes, detección de hardware y descarga de
   modelos. Hecho; falta medir en la 5060 (ver [P2.md](P2.md)).
 - **P3, edición por objeto**: inpainting con máscara de ids y referencias.
+- **Instalación automática y ventana**: hecho (v0.3.0, ver [INSTALACION.md](INSTALACION.md)).
 - **P4, producto**: UI de chat en HtmlDialog, servidor local, selector de hardware,
   descarga de modelos y proveedor de nube.

@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIRE</title>
+<style>
+  :root {
+    --bg: #f6f3ee; --card: #ffffff; --ink: #1f2522; --muted: #66706b; --line: #e3ddd3;
+    --accent: #2f6f62; --accent-ink: #ffffff; --accent-soft: #e2efeb; --warn: #9a3b2e; --warn-soft: #f8e6e2;
+    --gold: #c9962b; --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161a19; --card: #202624; --ink: #ecefed; --muted: #9aa5a0; --line: #303836;
+      --accent: #5fb3a0; --accent-ink: #0f1513; --accent-soft: #23352f; --warn: #f09a8a; --warn-soft: #3a2420;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  main { padding: 18px 16px 32px; max-width: 560px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  header svg { width: 34px; height: 34px; }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: .5px; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+          padding: 16px; margin-bottom: 14px; }
+  h2 { font-size: 16px; margin: 0 0 8px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .hidden { display: none !important; }
+  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line);
+           background: var(--card); color: var(--ink); padding: 8px 12px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .primary { width: 100%; background: var(--accent); color: var(--accent-ink); border: none;
+             padding: 14px; font-size: 16px; font-weight: 600; }
+  .label { font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  .label:first-child { margin-top: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 6px 12px; border-radius: 999px; font-size: 14px; }
+  .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink);
+                               font-weight: 600; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; font: inherit; color: var(--ink);
+             background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .steps { list-style: none; padding: 0; margin: 10px 0; }
+  .steps li { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; color: var(--muted); }
+  .steps li.now { color: var(--ink); font-weight: 600; }
+  .steps li.ok { color: var(--ink); }
+  .dot { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2px solid var(--line); margin-top: 2px; }
+  li.ok .dot { background: var(--accent); border-color: var(--accent); }
+  li.now .dot { border-color: var(--accent); border-top-color: transparent; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .bar { height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; margin: 8px 0 4px; }
+  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+  .bar.indet > div { width: 30%; animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+  .error { background: var(--warn-soft); border-color: var(--warn); }
+  .error h2 { color: var(--warn); }
+  .gallery { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .shot { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); }
+  .shot img { width: 100%; display: block; cursor: zoom-in; background: var(--line); min-height: 120px; }
+  .shot .meta { padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .shot .meta span { font-size: 12px; color: var(--muted); }
+  .shot .meta .row { flex-wrap: nowrap; flex: none; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink);
+           color: var(--bg); padding: 10px 14px; border-radius: 10px; font-size: 14px; max-width: 90%;
+           opacity: 0; transition: opacity .3s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  ul.req { margin: 8px 0 14px; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3" fill="#2f6f62"/><path d="M5 17l4.5-5 3 3.2 2.2-2.4L19 17z" fill="#f4efe6"/><path d="M17.5 5.5l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z" fill="#f2c14e"/></svg>
+    <div><h1>AIRE</h1><p>Imágenes realistas de tus diseños</p></div>
+  </header>
+
+  <!-- ============ Preparación (solo la primera vez) ============ -->
+  <section id="setup" class="hidden">
+    <div class="card" id="setup-welcome">
+      <h2>Vamos a preparar AIRE</h2>
+      <p>Antes de crear la primera imagen, AIRE necesita instalar su motor de inteligencia artificial
+         en este ordenador. <b>Solo se hace una vez.</b></p>
+      <ul class="req">
+        <li>Tarda entre 30 y 90 minutos, según tu conexión a internet.</li>
+        <li>Necesita unos 40 GB libres en el disco.</li>
+        <li>Puedes seguir usando SketchUp mientras tanto.</li>
+      </ul>
+      <button class="primary" id="btn-install">Preparar AIRE</button>
+    </div>
+
+    <div class="card hidden" id="setup-running">
+      <h2>Preparando AIRE…</h2>
+      <p class="muted">Puedes seguir trabajando en SketchUp. Si se corta, vuelve a abrir AIRE y continuará
+        donde se quedó.</p>
+      <ul class="steps" id="setup-steps"></ul>
+      <div class="bar" id="setup-bar"><div></div></div>
+      <div class="muted" id="setup-detail"></div>
+    </div>
+
+    <div class="card error hidden" id="setup-error">
+      <h2>No se ha podido terminar</h2>
+      <p id="setup-error-text"></p>
+      <div class="row">
+        <button class="primary" id="btn-retry">Volver a intentarlo</button>
+      </div>
+      <p><a href="#" id="setup-log" class="muted">Ver el registro técnico</a></p>
+    </div>
+  </section>
+
+  <!-- ============ Estudio ============ -->
+  <section id="studio" class="hidden">
+    <div class="card">
+      <div class="label">Estilo</div>
+      <div class="chips" id="styles"></div>
+      <div class="label">Luz</div>
+      <div class="chips" id="lights"></div>
+      <div class="label">¿Algo más? <span class="muted">(opcional)</span></div>
+      <textarea id="prompt" placeholder="Por ejemplo: añade plantas, una alfombra de yute y cuadros en la pared"></textarea>
+      <div class="label">Calidad</div>
+      <div class="chips" id="qualities"></div>
+      <div class="label">Cuántas imágenes</div>
+      <div class="chips" id="variants"></div>
+      <p class="muted">Antes de pulsar, encuadra en SketchUp la vista que quieres.</p>
+      <button class="primary" id="btn-render">Crear imagen de esta vista</button>
+    </div>
+
+    <div class="card hidden" id="job-running">
+      <h2 id="job-title">Creando la imagen…</h2>
+      <div class="bar" id="job-bar"><div></div></div>
+      <div class="muted" id="job-detail"></div>
+    </div>
+
+    <div class="card error hidden" id="job-error">
+      <h2>No se ha podido crear la imagen</h2>
+      <p id="job-error-text"></p>
+      <p><a href="#" id="job-log" class="muted">Ver el registro técnico</a></p>
+    </div>
+
+    <h2 id="gallery-title" class="hidden">Tus imágenes</h2>
+    <div class="gallery" id="gallery"></div>
+
+    <div class="card" style="margin-top:14px">
+      <details>
+        <summary>Opciones avanzadas</summary>
+        <p class="muted" id="engine-info"></p>
+        <label class="row"><input type="checkbox" id="compare"> Comparar 8 ajustes técnicos (para pruebas)</label>
+      </details>
+    </div>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+const STYLES = [["modelo", "Como en el modelo"], ["nordico", "Nórdico"], ["japandi", "Japandi"],
+                ["mediterraneo", "Mediterráneo"], ["industrial", "Industrial"], ["clasico", "Clásico"],
+                ["lujo", "Lujo"], ["minimalista", "Minimalista"]];
+const LIGHTS = [["dia", "De día"], ["tarde", "Atardecer"], ["noche", "De noche"]];
+const QUALITIES = [["rapida", "Rápida"], ["alta", "Alta calidad"]];
+const VARIANTS = [["1", "1"], ["2", "2"], ["4", "4"]];
+const NAMES = Object.fromEntries([...STYLES, ...LIGHTS]);
+
+const $ = (id) => document.getElementById(id);
+const prefs = load();
+
+function load() {
+  try { return JSON.parse(localStorage.getItem("aire-prefs")) || {}; } catch (e) { return {}; }
+}
+function save() {
+  try { localStorage.setItem("aire-prefs", JSON.stringify(prefs)); } catch (e) { /* sin almacenamiento */ }
+}
+
+function chips(id, options, key, fallback) {
+  const box = $(id);
+  if (!(key in prefs)) prefs[key] = fallback;
+  box.innerHTML = "";
+  for (const [value, text] of options) {
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.textContent = text;
+    b.setAttribute("aria-pressed", String(prefs[key] === value));
+    b.onclick = () => { prefs[key] = value; save(); chips(id, options, key, fallback); };
+    box.appendChild(b);
+  }
+}
+
+function call(name, ...args) {
+  if (window.sketchup && typeof window.sketchup[name] === "function") window.sketchup[name](...args);
+}
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 4000);
+}
+
+function show(id, on) { $(id).classList.toggle("hidden", !on); }
+
+function bar(id, percent) {
+  const el = $(id);
+  const indet = percent === null || percent === undefined;
+  el.classList.toggle("indet", indet);
+  el.firstElementChild.style.width = indet ? "" : Math.max(2, Math.min(100, percent)) + "%";
+}
+
+function renderSetup(setup) {
+  const st = setup ? setup.state : null;
+  show("setup-welcome", !st || st === "done");
+  show("setup-running", st === "running");
+  show("setup-error", st === "error" || st === "interrupted");
+  if (st === "running") {
+    const list = $("setup-steps");
+    list.innerHTML = "";
+    (setup.steps || []).forEach((name, i) => {
+      const li = document.createElement("li");
+      li.className = i < setup.step ? "ok" : i === setup.step ? "now" : "";
+      li.innerHTML = '<span class="dot"></span><span></span>';
+      li.lastChild.textContent = name;
+      list.appendChild(li);
+    });
+    $("setup-detail").textContent = setup.detail || "";
+    bar("setup-bar", setup.percent);
+  } else if (st === "error" || st === "interrupted") {
+    $("setup-error-text").textContent = st === "interrupted"
+      ? "La preparación se detuvo (quizá se apagó el ordenador o se perdió la conexión). Pulsa el botón para continuar donde se quedó."
+      : setup.error;
+    $("btn-retry").textContent = st === "interrupted" ? "Continuar" : "Volver a intentarlo";
+    $("setup-log").classList.toggle("hidden", !setup.log);
+    $("setup-log").onclick = (e) => { e.preventDefault(); call("open_log", setup.log); };
+  }
+}
+
+function renderJob(job) {
+  const st = job ? job.state : null;
+  const busy = st === "running";
+  show("job-running", busy);
+  show("job-error", st === "error" || st === "interrupted");
+  $("btn-render").disabled = busy;
+  $("btn-render").textContent = busy ? "Creando…" : "Crear imagen de esta vista";
+  if (busy) {
+    $("job-title").textContent = (job.title || "Creando la imagen") + "…";
+    $("job-detail").textContent = job.detail || "";
+    bar("job-bar", job.percent);
+  } else if (st === "error" || st === "interrupted") {
+    $("job-error-text").textContent = st === "interrupted"
+      ? "Se ha interrumpido. Vuelve a pulsar «Crear imagen de esta vista»."
+      : job.error;
+    $("job-log").classList.toggle("hidden", !job.log);
+    $("job-log").onclick = (e) => { e.preventDefault(); call("open_log", job.log); };
+  }
+}
+
+function renderGallery(items) {
+  const g = $("gallery");
+  g.innerHTML = "";
+  show("gallery-title", items.length > 0);
+  for (const it of items) {
+    const card = document.createElement("div");
+    card.className = "shot";
+    const img = document.createElement("img");
+    img.alt = "Imagen creada por AIRE";
+    if (it.thumb) img.src = it.thumb;
+    img.onclick = () => call("open_image", it.path);
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const info = document.createElement("span");
+    const when = it.created ? new Date(it.created * 1000).toLocaleString("es-ES",
+      { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+    info.textContent = [NAMES[it.style], NAMES[it.light], when].filter(Boolean).join(" · ");
+    const actions = document.createElement("div");
+    actions.className = "row";
+    const view = document.createElement("button");
+    view.textContent = "Ver grande";
+    view.onclick = () => call("open_image", it.path);
+    const keep = document.createElement("button");
+    keep.textContent = "Guardar…";
+    keep.onclick = () => call("save_image", it.path);
+    actions.append(view, keep);
+    meta.append(info, actions);
+    card.append(img, meta);
+    g.appendChild(card);
+  }
+}
+
+window.aire = {
+  setState(state) {
+    show("setup", !state.ready);
+    show("studio", !!state.ready);
+    if (!state.ready) renderSetup(state.setup);
+    else renderJob(state.job);
+    if (state.history) renderGallery(state.history);
+    const c = state.config || {};
+    $("engine-info").textContent = c.gpu
+      ? `Tarjeta gráfica: ${c.gpu} (${c.vram_gb} GB) · Memoria: ${c.ram_gb} GB · Modelo: ${c.preset_title || ""}`
+      : "";
+  },
+  toast,
+};
+
+$("btn-install").onclick = () => call("install");
+$("btn-retry").onclick = () => call("install");
+$("btn-render").onclick = () => {
+  const params = {
+    style: prefs.style, light: prefs.light, prompt: $("prompt").value,
+    quality: $("compare").checked ? "comparar" : prefs.quality, variants: Number(prefs.variants),
+  };
+  $("btn-render").disabled = true;
+  $("btn-render").textContent = "Leyendo el modelo…";
+  // Deja que la ventana se repinte antes de que SketchUp lea el modelo
+  setTimeout(() => call("render", JSON.stringify(params)), 50);
+};
+
+chips("styles", STYLES, "style", "modelo");
+chips("lights", LIGHTS, "light", "dia");
+chips("qualities", QUALITIES, "quality", "alta");
+chips("variants", VARIANTS, "variants", "1");
+call("ready");
+</script>
+</body>
+</html>

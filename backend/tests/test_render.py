@@ -121,6 +121,8 @@ class FakeComfy(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/object_info":
             self._send(OBJECT_INFO)
+        elif self.path == "/system_stats":
+            self._send({"system": {}, "devices": []})
         elif self.path.startswith("/history/"):
             self._send({"p1": {"status": {"status_str": "success", "completed": True},
                                "outputs": {"9": {"images": [{"filename": "r.png", "subfolder": "aire", "type": "output"}]}}}})
@@ -130,8 +132,8 @@ class FakeComfy(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
         if self.path == "/upload/image":
-            assert b'name="image"; filename="depth.png"' in body
-            self._send({"name": "depth.png", "subfolder": "aire", "type": "input"})
+            name = body.split(b'name="image"; filename="')[1].split(b'"')[0].decode()
+            self._send({"name": name, "subfolder": "aire", "type": "input"})
         elif self.path == "/prompt":
             FakeComfy.queued.append(json.loads(body)["prompt"])
             self._send({"prompt_id": "p1", "number": 0, "node_errors": {}})

@@ -55,13 +55,33 @@ def light_hint(scene: Scene) -> str:
     return "natural daylight through the windows"
 
 
+STYLES = {
+    "modelo": "",
+    "nordico": "Scandinavian interior style, light woods, white and beige tones, cozy textiles",
+    "japandi": "Japandi interior style, natural wood, linen, muted earthy tones, minimal decor",
+    "mediterraneo": "Mediterranean interior style, warm whites, terracotta, natural fibers, rattan",
+    "industrial": "industrial loft interior style, black metal, exposed brick, warm leather",
+    "clasico": "classic elegant interior style, mouldings, refined fabrics, warm tones",
+    "lujo": "luxury contemporary interior, marble, brass details, sophisticated lighting",
+    "minimalista": "minimalist interior, clean surfaces, neutral palette, uncluttered",
+}
+
+LIGHTS = {
+    "dia": "bright natural daylight through the windows",
+    "tarde": "warm golden hour sunlight, long soft shadows",
+    "noche": "night time, warm interior lamps and ceiling lights on, cozy atmosphere",
+}
+
+
 def build_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: list[dict],
-                 user: str = "", auto: bool = True) -> str:
+                 user: str = "", auto: bool = True, style: str = "", light: str | None = None) -> str:
     parts = [user.strip()] if user.strip() else []
+    if STYLES.get(style):
+        parts.append(STYLES[style])
     if auto:
         items = scene_items(scene, ids, material, visible)
         if items:
             parts.append("The room contains: " + ", ".join(items))
-        parts.append(light_hint(scene))
+        parts.append(LIGHTS.get(light or "", "") or light_hint(scene))
     parts.append(QUALITY)
     return ". ".join(p for p in parts if p)
