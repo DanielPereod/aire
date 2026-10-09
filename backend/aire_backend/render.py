@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw
 from .colormatch import lock_colors
 from .photo import photo_finish
 from .comfy import ComfyClient, ComfyError
-from .fidelity import load_lines, score
+from .fidelity import edge_map, load_lines, score
 from .passes import Passes, supersampled_shaded
 from .prompt import build_prompt
 from .scene import load_scene
@@ -96,7 +96,9 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
     needs_control = any(isinstance(s, ZImageSettings) for s in runs)
     depth = client.upload_image(pdir / "depth_control.png") if needs_control else None
     lines = client.upload_image(pdir / "edges_control.png") if needs_control else None
-    ref_lines = load_lines(pdir)
+    # Con base externa la fidelidad se mide frente a ella: Cycles nivela la cámara y su
+    # encuadre ya no coincide con las líneas calculadas con la cámara de SketchUp
+    ref_lines = edge_map(Image.open(fitted)) if base is not None else load_lines(pdir)
     out_dir.mkdir(parents=True, exist_ok=True)
     results = []
     for i, s in enumerate(runs):

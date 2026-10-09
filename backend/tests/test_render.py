@@ -257,6 +257,8 @@ def test_color_names_keep_floor_tone():
     assert color_name((222, 205, 180)) == "beige"
     assert color_name((150, 150, 150)) == "grey"
     assert color_name((70, 100, 140)) == "muted blue"
+    assert color_name((150, 80, 50)) == "copper brown"  # patas cobrizas
+    assert color_name((110, 70, 45)) == "brown"  # nogal
     assert color_name(None) is None
 
 
