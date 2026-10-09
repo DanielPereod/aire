@@ -258,3 +258,12 @@ def test_color_names_keep_floor_tone():
     assert color_name((150, 150, 150)) == "grey"
     assert color_name((70, 100, 140)) == "muted blue"
     assert color_name(None) is None
+
+
+def test_edit_prompt_names_colors_of_large_surfaces(tmp_path):
+    from aire_backend.prompt import build_edit_prompt
+    passes, _ = prepare_passes(str(build_interior(tmp_path / "e")), 320)
+    a = passes.arrays
+    text = build_edit_prompt(passes.scene, a["ids"], a["material"], passes.visible_objects(), albedo=a["albedo"])
+    assert "brown at the bottom (Suelo)" in text and "white at the top (Paredes)" in text
+    assert "grey" not in text.split("Large surfaces")[0]  # sin palabras de color que empujen

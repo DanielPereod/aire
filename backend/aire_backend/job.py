@@ -84,7 +84,8 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
     a = passes.arrays
     visible = passes.visible_objects()
 
-    full_prompt = build_edit_prompt(passes.scene, a["ids"], a["material"], visible, prompt, style=style, light=light)
+    full_prompt = build_edit_prompt(passes.scene, a["ids"], a["material"], visible, prompt, style=style, light=light,
+                                    albedo=a["albedo"])
     ensure_models(cfg, progress)
 
     progress.step(2, "Un momento…")

@@ -126,8 +126,7 @@ EDIT_KEEP = ("Turn this 3D render into a real photograph of the same interior. K
 EDIT_DETAIL = ("Preserve every small detail exactly as in the image: patterns with gaps keep their gaps, thin "
                "legs and frames stay thin, and handles, taps, sinks, jars, bottles, appliances and small "
                "objects keep their shape, color, finish and number. Every surface keeps its own material and "
-               "its exact color and tone: fabric stays the same fabric, wood stays wood, stone stays stone, and "
-               "a light floor keeps its color instead of turning grey.")
+               "its exact color and tone: fabric stays the same fabric, wood stays wood and stone stays stone.")
 EDIT_LOOK = ("Make it look like a photograph by a professional interior photographer with a full-frame camera: "
              "physically correct light with soft shadows, contact shadows and ambient occlusion in corners, "
              "light falling off naturally across the room, true-to-life reflections on glossy and metal "
@@ -137,12 +136,49 @@ EDIT_CREATIVE = ("You may add a few small decorative props (plants, books, ceram
                  "all existing furniture and finishes unchanged.")
 
 
+def _where(ys: np.ndarray, xs: np.ndarray, h: int, w: int) -> str:
+    cy, cx = ys.mean() / h, xs.mean() / w
+    v = "top" if cy < 0.33 else "bottom" if cy > 0.66 else ""
+    hz = "left" if cx < 0.33 else "right" if cx > 0.66 else ""
+    return " ".join(p for p in (v, hz) if p) or "center"
+
+
+def main_surfaces(scene: Scene, ids: np.ndarray, material: np.ndarray, albedo: np.ndarray,
+                  min_coverage: float = 0.02, limit: int = 8) -> list[str]:
+    """Colores de las superficies grandes, medidos en la imagen base («beige surface at the
+    bottom (Suelo)»). Pruebas 0.7: sin esto la IA volvía gris el suelo beige y los muebles azules."""
+    h, w = material.shape
+    mats, counts = np.unique(material[material >= 0], return_counts=True)
+    out = []
+    for m, c in sorted(zip(mats, counts), key=lambda t: -t[1]):
+        if c / material.size < min_coverage or len(out) >= limit:
+            break
+        sel = material == m
+        lin = ((albedo[sel].astype(np.float32) / 255.0) ** 2.2).mean(axis=0)
+        color = color_name(tuple((lin ** (1 / 2.2) * 255).round()))
+        if not color:
+            continue
+        obj_ids, oc = np.unique(ids[sel], return_counts=True)
+        obj = scene.objects[int(obj_ids[oc.argmax()])] if len(obj_ids) and obj_ids[oc.argmax()] >= 0 else {}
+        name = next((n for n in (obj.get("name"), obj.get("definition"), scene.materials[int(m)].get("name"))
+                     if _meaningful(n)), None)
+        ys, xs = np.nonzero(sel)
+        text = f"{color} at the {_where(ys, xs, h, w)}"
+        out.append(f"{text} ({name})" if name else text)
+    return out
+
+
 def build_edit_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: list[dict],
-                      user: str = "", style: str = "", light: str | None = None, creative: bool = False) -> str:
+                      user: str = "", style: str = "", light: str | None = None, creative: bool = False,
+                      albedo: np.ndarray | None = None) -> str:
     parts = [EDIT_KEEP, EDIT_DETAIL, EDIT_LOOK]
+    if albedo is not None:
+        surfaces = main_surfaces(scene, ids, material, albedo)
+        if surfaces:
+            parts.append("Large surfaces and their exact colors: " + ", ".join(surfaces) + ".")
     items = scene_items(scene, ids, material, visible)
     if items:
-        parts.append("Materials in the scene: " + ", ".join(items) + ".")
+        parts.append("Objects in the scene: " + ", ".join(items) + ".")
     if STYLES.get(style):
         parts.append(f"Keep the architecture and furniture, but give the decoration a feel of: {STYLES[style]}.")
     parts.append("Lighting: " + (LIGHTS.get(light or "") or light_hint(scene)) + ".")
