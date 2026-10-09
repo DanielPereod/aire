@@ -62,6 +62,8 @@ class KleinSettings:
     # < 1: la 1.ª pasada parte de la imagen base (no de ruido puro) y conserva más sus colores;
     # útil cuando la base ya tiene luz real (Cycles)
     base_denoise: float = 1.0
+    # 0-1: cuánto se fijan al final los colores a los de la imagen base (solo con base externa)
+    color_lock: float = 0.0
     unet: str = "flux-2-klein-4b-fp8.safetensors"
     text_encoder: str = "qwen_3_4b.safetensors"
     vae: str = "flux2-vae.safetensors"

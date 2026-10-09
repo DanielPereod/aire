@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
+from .colormatch import lock_colors
 from .comfy import ComfyClient, ComfyError
 from .fidelity import load_lines, score
 from .passes import Passes, supersampled_shaded
@@ -86,6 +87,7 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
     base: imagen base alternativa a shaded.png (p. ej. un render de Cycles con luz real)."""
     if base is not None:
         fitted = pdir / "base_externa.png"
+        color_ref = Image.open(base).convert("RGB")
         Image.open(base).convert("RGB").resize((passes.width, passes.height), Image.Resampling.LANCZOS).save(fitted)
         init = client.upload_image(fitted)
     else:
@@ -108,6 +110,8 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
         images = client.run(wf, check=(i == 0))
         secs = time.perf_counter() - t0
         img = Image.open(BytesIO(images[0]))
+        if base is not None and getattr(s, "color_lock", 0) > 0:
+            img = lock_colors(img, color_ref, s.color_lock)
         path = out_dir / f"render_{i:02d}.png"
         img.save(path)
         item = {"file": path.name, "path": str(path), "seconds": round(secs, 1), "label": label(s),

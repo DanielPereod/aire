@@ -57,6 +57,9 @@ plana tenía que inventarse la luz y, de paso, cambiaba materiales según la sem
    Revelado automático (exposición, cielo neutro, AgX). ~25 s a 1920 px en una RTX 5060.
 2. Ese render es la imagen base de FLUX.2 klein (dos pasadas, 1920 px), que lo convierte
    en fotografía con la luz y los materiales ya resueltos. ~45 s más.
+3. **Colores fijados** (`colormatch.py`): la IA a veces cambia el tono de superficies grandes
+   (suelo, muebles, latón). Se conserva su luminosidad y detalle y se toma de Cycles el color a
+   escala media (canales a/b de Lab desenfocados). Determinista, menos de 1 s.
 
 Si Cycles no está o falla, «Alta calidad» sigue con la imagen base sencilla (se anota en
 `logs/render.log`). «Preparar AIRE» lo instala (unos 700 MB); en instalaciones anteriores se

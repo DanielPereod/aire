@@ -285,3 +285,20 @@ def test_klein_first_pass_can_start_from_base():
     first = [n for n in wf.values() if n["class_type"] == "SamplerCustomAdvanced"][0]["inputs"]
     assert wf[first["latent_image"][0]]["class_type"] == "VAEEncode" and first["sigmas"][1] == 1
     assert "EmptyFlux2LatentImage" not in [n["class_type"] for n in wf.values()]
+
+
+def test_lock_colors_takes_reference_hue_keeps_detail():
+    import numpy as np
+    from PIL import Image
+    from aire_backend.colormatch import lock_colors
+
+    # IA: suelo amarillento con una franja de detalle; referencia: gris neutro
+    ai = np.full((64, 96, 3), (210, 180, 120), np.uint8)
+    ai[:, 40:44] = (120, 100, 60)
+    ref = Image.new("RGB", (96, 64), (180, 180, 180))
+    out = np.asarray(lock_colors(Image.fromarray(ai), ref, radius=2), np.int16)
+    r, g, b = out[10, 10]
+    assert abs(r - b) < 12  # el amarillo pasa a neutro
+    assert out[10, 41].sum() < out[10, 10].sum() - 150  # la franja oscura (luminancia de la IA) sigue
+    same = lock_colors(Image.fromarray(ai), ref, strength=0)
+    assert np.array_equal(np.asarray(same), ai)

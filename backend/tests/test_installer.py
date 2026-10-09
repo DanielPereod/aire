@@ -442,9 +442,10 @@ def test_high_quality_uses_cycles_render_as_base(tmp_path, monkeypatch, fake_ser
     monkeypatch.setattr(jobmod.cycles_engine, "render", fake_render)
     monkeypatch.setitem(jobmod.QUALITY, "alta", {**jobmod.QUALITY["alta"], "width": 480})
     export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
-    jobmod.run_job(home, export, "", "modelo", "noche", "alta", 1, Progress(None, jobmod.STEPS))
+    result = jobmod.run_job(home, export, "", "modelo", "noche", "alta", 1, Progress(None, jobmod.STEPS))
     assert calls == [(480, "noche")]
     assert list(export.glob("passes_*/base_externa.png"))  # la IA parte del render de Cycles
+    assert result["images"][0]["settings"]["color_lock"] == 1.0  # y conserva sus colores
 
 
 def test_cycles_failure_falls_back_to_simple_base(tmp_path, monkeypatch, fake_server):  # noqa: F811
@@ -460,3 +461,4 @@ def test_cycles_failure_falls_back_to_simple_base(tmp_path, monkeypatch, fake_se
     result = jobmod.run_job(home, export, "", "modelo", "dia", "alta", 1, Progress(None, jobmod.STEPS))
     assert result["images"]
     assert "luz real no disponible" in (home / "logs" / "render.log").read_text(encoding="utf-8")
+    assert result["images"][0]["settings"]["color_lock"] == 0.0
