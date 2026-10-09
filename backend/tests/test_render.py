@@ -95,7 +95,7 @@ def test_prompt_lists_parts_and_materials(tmp_path):
     p = Passes(scene).render()
     prompt = build_prompt(scene, p.arrays["ids"], p.arrays["material"], p.visible_objects(), "nordic")
     assert prompt.startswith("nordic")
-    assert "Mesa comedor (brown, Nogal)" in prompt and "Suelo (brown, Tarima roble)" in prompt
+    assert "Mesa comedor (brown wood)" in prompt and "Silla (grey fabric)" in prompt
     assert "Pata" not in prompt and "Habitación" not in prompt
 
 

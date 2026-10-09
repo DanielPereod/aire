@@ -48,9 +48,43 @@ def color_name(rgb) -> str | None:
     return f"{tone}{muted}{hue}"
 
 
+_FINISHES = [
+    (re.compile(r"lat[oó]n|brass|bronce|bronze", re.I), "brass"),
+    (re.compile(r"\boro\b|dorad|gold", re.I), "gold"),
+    (re.compile(r"cobre|copper", re.I), "copper"),
+    (re.compile(r"inox|stainless|acero|steel|chrom|cromad", re.I), "stainless steel"),
+    (re.compile(r"m[aá]rmol|marble", re.I), "marble"),
+    (re.compile(r"nogal|walnut|roble|oak|madera|wood", re.I), "wood"),
+    (re.compile(r"tela|fabric|tejido|textil|lino|linen|algod", re.I), "fabric"),
+    (re.compile(r"rat[aá]n|rattan|mimbre|wicker|caña|cane", re.I), "rattan"),
+    (re.compile(r"cuero|leather|piel", re.I), "leather"),
+    (re.compile(r"vidrio|cristal|glass", re.I), "glass"),
+]
+
+
+def finish(name: str | None) -> str | None:
+    """Tipo de material deducido del nombre (latón, tela…), para que la IA no lo cambie."""
+    for pat, word in _FINISHES:
+        if name and pat.search(name):
+            return word
+    return None
+
+
+def _describe(scene: Scene, m: int, albedo: np.ndarray | None, sel: np.ndarray) -> str:
+    info = scene.materials[m]
+    if albedo is not None and sel.any():
+        lin = ((albedo[sel].astype(np.float32) / 255.0) ** 2.2).mean(axis=0)
+        color = color_name(tuple((lin ** (1 / 2.2) * 255).round()))
+    else:
+        color = color_name(info.get("color"))
+    kind = finish(info.get("name"))
+    return " ".join(w for w in (color, kind) if w)
+
+
 def scene_items(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: list[dict],
-                min_coverage: float = 0.003, limit: int = 14) -> list[str]:
-    """'Objeto (material dominante)' para los objetos con nombre que más se ven."""
+                min_coverage: float = 0.003, limit: int = 14, albedo: np.ndarray | None = None) -> list[str]:
+    """'Objeto (materiales)' para los objetos con nombre que más se ven: el dominante y los
+    que cubren ≥15 % del objeto (pruebas 0.8: el remate de latón de las lámparas salía negro)."""
     items, seen = [], set()
     for obj in sorted(visible, key=lambda o: -o["coverage"]):
         if obj["coverage"] < min_coverage or obj["type"] == "model":
@@ -63,11 +97,15 @@ def scene_items(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: li
         # Solo el nivel más alto con nombre: no repetir las patas de la silla
         if any(scene.objects[a].get("name") in seen for a in scene.ancestors(obj["id"])):
             continue
-        mask = np.isin(ids, scene.descendants(obj["id"]))
-        mats, counts = np.unique(material[mask & (material >= 0)], return_counts=True)
-        mat = scene.materials[int(mats[counts.argmax()])] if len(mats) else {}
-        mat_name = mat.get("name")
-        desc = [c for c in (color_name(mat.get("color")), mat_name if _meaningful(mat_name) else None) if c]
+        mask = np.isin(ids, scene.descendants(obj["id"])) & (material >= 0)
+        mats, counts = np.unique(material[mask], return_counts=True)
+        desc = []
+        for m, c in sorted(zip(mats, counts), key=lambda t: -t[1])[:3]:
+            if c < 0.15 * counts.sum():
+                break
+            d = _describe(scene, int(m), albedo, mask & (material == m))
+            if d and d not in desc:
+                desc.append(d)
         items.append(f"{name} ({', '.join(desc)})" if desc else name)
         seen.add(name)
         if len(items) >= limit:
@@ -176,7 +214,7 @@ def build_edit_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visib
         surfaces = main_surfaces(scene, ids, material, albedo)
         if surfaces:
             parts.append("Large surfaces and their exact colors: " + ", ".join(surfaces) + ".")
-    items = scene_items(scene, ids, material, visible)
+    items = scene_items(scene, ids, material, visible, albedo=albedo)
     if items:
         parts.append("Objects in the scene: " + ", ".join(items) + ".")
     if STYLES.get(style):
