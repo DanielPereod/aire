@@ -7,7 +7,9 @@ servidor real antes de encolar.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from .comfy import Graph
 
@@ -291,3 +293,23 @@ def qwen21_edit(s: QwenSettings, image: str, extra_refs: tuple[str, ...] = (), p
     dec = g.add("VAEDecode", samples=g.out(out), vae=g.out(vae))
     g.add("SaveImage", images=g.out(dec), filename_prefix=prefix)
     return g.to_json()
+
+
+# Workflow de Dani «Architecture FLUX2 · Master Render v2» (workflow_files/README.md): render
+# a 0,55 Mpx en 4 pasos y ampliación a 1,6 Mpx con refinado suave. Se usa tal cual; AIRE solo
+# cambia la imagen de entrada, la semilla y el prefijo de salida.
+ARCHITECTURE_DIR = Path(__file__).with_name("workflow_files")
+ARCHITECTURE_STAGES = {"render": ("architecture_flux2_master_v2.1_render.api.json", "4"),
+                       "upscale": ("architecture_flux2_master_v2.2_upscale.api.json", "200")}
+
+
+def architecture_v2(stage: str, image: str, seed: int, prefix: str = "aire/ia") -> dict:
+    name, load = ARCHITECTURE_STAGES[stage]
+    g = json.loads((ARCHITECTURE_DIR / name).read_text(encoding="utf-8"))
+    g[load]["inputs"]["image"] = image
+    for node in g.values():
+        if node["class_type"] == "RandomNoise":
+            node["inputs"]["noise_seed"] = seed
+        elif node["class_type"] == "SaveImage":
+            node["inputs"]["filename_prefix"] = f"{prefix}_{stage}"
+    return g

@@ -582,8 +582,9 @@ def test_enhance_starts_from_raw_cycles_and_adds_a_new_image(tmp_path, monkeypat
     Image.new("RGB", (640, 400), (210, 200, 190)).save(raw)
     res = enhance.run_enhance(home, image, tmp_path / "jobs" / "c", 3, Progress(None, enhance.STEPS))
     assert res["kind"] == "ia" and res["source"] == str(image)
-    out = Image.open(res["images"][0]["path"])
-    assert out.size == (640, 400)
-    enc = next(n for n in FakeComfy.queued[-1].values() if n["class_type"] == "TextEncodeQwenImage21")
-    assert "catalog photograph" in enc["inputs"]["prompt"]
+    stages = FakeComfy.queued[-2:]
+    assert [g["4"]["inputs"]["image"] for g in stages[:1]] == ["aire/base.png"]
+    assert stages[1]["200"]["inputs"]["image"] == "aire/paso1.png"
+    assert all(n["inputs"]["noise_seed"] == 3 for g in stages for n in g.values() if n["class_type"] == "RandomNoise")
+    assert "photorealistic interior" in stages[0]["8"]["inputs"]["text"]
     assert FakeComfy.freed >= 1

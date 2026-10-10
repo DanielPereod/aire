@@ -564,7 +564,7 @@ function renderGallery(items) {
     const ai = document.createElement("button");
     ai.className = "btn";
     ai.innerHTML = icon("i-spark") + "IA";
-    ai.title = "Procesar con IA: acabado de foto, sin cambiar la cámara ni los objetos (1-2 min)";
+    ai.title = "Procesar con IA: acabado de foto, sin cambiar la cámara ni los objetos (menos de 1 min)";
     ai.onclick = () => { call("enhance", it.path); toast("Procesando con IA… aparecerá en la galería"); };
     if (it.kind === "ia") actions.append(edit, keep);
     else actions.append(ai, edit, keep);

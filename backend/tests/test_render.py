@@ -52,6 +52,17 @@ OBJECT_INFO = {
     "SplitSigmasDenoise": {"input": {"required": {"sigmas": ["SIGMAS"], "denoise": ["FLOAT", {}]}}},
     "SamplerCustomAdvanced": {"input": {"required": {k: ["X"] for k in ("noise", "guider", "sampler", "sigmas", "latent_image")}}},
 }
+# Nodos del workflow de Dani «Architecture FLUX2 · Master Render v2»
+OBJECT_INFO.update({
+    "ImageScaleToTotalPixels": {"input": {"required": {"image": ["IMAGE"], "upscale_method": [["lanczos"]],
+                                                       "megapixels": ["FLOAT", {}], "resolution_steps": ["INT", {}]}}},
+    "GetImageSize": {"input": {"required": {"image": ["IMAGE"]}}},
+    "VAEEncodeTiled": {"input": {"required": {k: ["X"] for k in (
+        "pixels", "vae", "tile_size", "overlap", "temporal_size", "temporal_overlap")}}},
+    "VAEDecodeTiled": {"input": {"required": {k: ["X"] for k in (
+        "samples", "vae", "tile_size", "overlap", "temporal_size", "temporal_overlap")}}},
+    "BasicGuider": {"input": {"required": {"model": ["MODEL"], "conditioning": ["CONDITIONING"]}}},
+})
 OBJECT_INFO["UNETLoader"]["input"]["required"]["unet_name"] = [["z_image_turbo_bf16.safetensors", "flux-2-klein-4b-fp8.safetensors",
                                                                 "qwen_image_2.1_int8_convrot.safetensors"]]
 OBJECT_INFO["VAELoader"]["input"]["required"]["vae_name"] = [["ae.safetensors", "flux2-vae.safetensors",
