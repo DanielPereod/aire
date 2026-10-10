@@ -69,6 +69,8 @@ OBJECT_INFO["VAELoader"]["input"]["required"]["vae_name"] = [["ae.safetensors", 
                                                               "qwen_image_2.1_vae_bf16.safetensors"]]
 OBJECT_INFO["CLIPLoader"]["input"]["required"]["clip_name"] = [["qwen_3_4b.safetensors", "qwen3vl_8b_int8_convrot.safetensors"]]
 OBJECT_INFO["CLIPLoader"]["input"]["required"]["type"] = [["lumina2", "flux2", "qwen_image"]]
+OBJECT_INFO["UpscaleModelLoader"] = {"input": {"required": {"model_name": [["RealESRGAN_x4plus.pth"]]}}}
+OBJECT_INFO["ImageUpscaleWithModel"] = {"input": {"required": {"upscale_model": ["UPSCALE_MODEL"], "image": ["IMAGE"]}}}
 OBJECT_INFO["LoraLoaderModelOnly"] = {"input": {"required": {
     "model": ["MODEL"], "lora_name": [["qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors"]],
     "strength_model": ["FLOAT", {}]}}}

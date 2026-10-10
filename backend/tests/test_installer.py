@@ -589,3 +589,20 @@ def test_enhance_starts_from_raw_cycles_and_adds_a_new_image(tmp_path, monkeypat
     assert next(n for n in graph.values() if n["class_type"] == "KSampler")["inputs"]["seed"] == 3
     assert Image.open(res["images"][0]["path"]).size == (640, 400)
     assert FakeComfy.freed >= 1
+
+
+def test_upscale_makes_a_new_double_size_image(tmp_path, monkeypatch, fake_server):  # noqa: F811
+    from aire_backend import upscale
+    from tests.test_render import FakeComfy
+    _, home, image = _edit_env(tmp_path, monkeypatch, fake_server)
+    monkeypatch.setattr(upscale.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
+    def fake_fetch(url, dest, on_bytes=None):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"m")
+    monkeypatch.setattr("aire_backend.models.fetch", fake_fetch)
+    src = Image.open(image)
+    res = upscale.run_upscale(home, image, tmp_path / "jobs" / "u", 2, Progress(None, upscale.STEPS))
+    out = Image.open(res["images"][0]["path"])
+    assert res["kind"] == "ampliada" and out.size == (src.width * 2, src.height * 2)
+    types = [n["class_type"] for n in FakeComfy.queued[-1].values()]
+    assert "ImageUpscaleWithModel" in types and "UpscaleModelLoader" in types

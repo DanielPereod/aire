@@ -71,6 +71,10 @@ FILES = {f.name: f for f in [
               "https://huggingface.co/Abiray/Qwen-Image-2.1-GGUF/resolve/main/qwen_image_2.1_Q4_K_M.gguf", 3.9),
     ModelFile("qwen3vl_8b_w4a8.safetensors", "text_encoders",
               "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_w4a8.safetensors", 5.9),
+    # Ampliar: Real-ESRGAN x4plus (BSD-3), modelo de superresolución de 64 MB que ComfyUI usa
+    # con sus nodos nativos UpscaleModelLoader + ImageUpscaleWithModel
+    ModelFile("RealESRGAN_x4plus.pth", "upscale_models",
+              "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth", 0.07),
     # Grande: pesos completos en bf16, para gráficas de 24 GB o más
     ModelFile("qwen_image_2.1_bf16.safetensors", "diffusion_models",
               "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_bf16.safetensors", 13.3),
@@ -123,6 +127,11 @@ PRESETS = {p.id: p for p in [
         "ver la ficha del modelo en Hugging Face",
         "Pesos completos, máxima calidad. Solo con 24 GB de memoria gráfica o más.",
         {"steps": 25, "unet": "qwen_image_2.1_bf16.safetensors", "text_encoder": "qwen3vl_8b_bf16.safetensors"},
+    ),
+    Preset(
+        "upscale-esrgan", "Real-ESRGAN x4 (ampliar)", "upscale", 4,
+        ("RealESRGAN_x4plus.pth",), "BSD-3-Clause",
+        "Amplía la imagen final a 2× (o 4×) con detalle nítido, en segundos.",
     ),
     Preset(
         "flux2-klein4b", "FLUX.2 [klein] 4B (fotorrealiza la imagen base del modelo)", "render", 8,

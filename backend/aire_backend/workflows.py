@@ -302,6 +302,16 @@ def qwen21_edit(s: QwenSettings, image: str, extra_refs: tuple[str, ...] = (), p
     return g.to_json()
 
 
+def upscale_model(image: str, model: str = "RealESRGAN_x4plus.pth", prefix: str = "aire/ampliada") -> dict:
+    """Superresolución x4 con un modelo de ampliación (nodos nativos de ComfyUI, en mosaico)."""
+    g = Graph()
+    up = g.add("UpscaleModelLoader", model_name=model)
+    img = g.add("LoadImage", image=image)
+    out = g.add("ImageUpscaleWithModel", upscale_model=g.out(up), image=g.out(img))
+    g.add("SaveImage", images=g.out(out), filename_prefix=prefix)
+    return g.to_json()
+
+
 # Workflow de Dani «Architecture FLUX2 · Master Render v2» (workflow_files/README.md): render
 # a 0,55 Mpx en 4 pasos y ampliación a 1,6 Mpx con refinado suave. Se usa tal cual; AIRE solo
 # cambia la imagen de entrada, la semilla y el prefijo de salida.
