@@ -23,7 +23,7 @@ from PIL import Image, ImageFilter
 
 from . import comfyctl
 from .comfy import CRASH_HELP, ComfyError
-from .job import ensure_models
+from .job import ensure_models, prepare_qwen
 from .photo import photo_finish
 from .progress import Progress, UserError
 from .render import round16, save_views
@@ -124,7 +124,9 @@ def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path 
         region.resize((w, h), Image.Resampling.LANCZOS).save(base_path)
     ref_paths = [fit_reference(r, work / f"ref_{i}.png") for i, r in enumerate(refs)]
 
-    ensure_models(cfg, progress, engine)
+    qwen_opts = prepare_qwen(home, cfg, progress) if engine == "qwen21" else None
+    if qwen_opts is None:
+        ensure_models(cfg, progress, engine)
     progress.step(2, "Un momento…")
     client = comfyctl.ensure(home, cfg, on_wait=lambda s: progress.update(f"Arrancando el motor… {int(s)} s"))
 
@@ -134,9 +136,9 @@ def run_edit(home: Path, image: Path, prompt: str, refs: list[Path], mask: Path 
     uploaded = tuple(client.upload_image(p) for p in ref_paths)
     prefix = f"aire/{job_dir.name}"
     if engine == "qwen21":
-        progress.step(3, "Unos 1-2 minutos")
+        progress.step(3, "Menos de un minuto" if qwen_opts.get("steps", 25) <= 8 else "Unos 1-2 minutos")
         client.free()
-        s = QwenSettings(width=w, height=h, prompt=text, seed=seed)
+        s = QwenSettings(width=w, height=h, prompt=text, seed=seed, **qwen_opts)
         wf = qwen21_edit(s, base, uploaded, prefix=prefix)
     else:
         progress.step(3, "Unos 30-60 s")

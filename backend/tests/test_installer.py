@@ -20,7 +20,7 @@ from tests.test_render import fake_server  # noqa: F401  (fixture)
 Usage = namedtuple("Usage", "total used free")
 
 
-def fake_models(tmp_path, presets=("flux2-klein4b", "qwen21")):
+def fake_models(tmp_path, presets=("qwen21", "qwen21-turbo")):
     """Carpeta de ComfyUI con los ficheros de los presets ya «descargados»."""
     comfy = tmp_path / "ComfyUI"
     presets = (presets,) if isinstance(presets, str) else presets
@@ -80,6 +80,15 @@ def env(tmp_path, monkeypatch, fake_server):  # noqa: F811
     return home
 
 
+def started_download(home):
+    """Un fichero del modelo elegido descargado a medias (queda su .part)."""
+    f = FILES[PRESETS["qwen21-turbo"].files[0]]
+    part = home / "comfy" / "ComfyUI" / "models" / f.folder / (f.name + ".part")
+    part.parent.mkdir(parents=True, exist_ok=True)
+    part.write_bytes(b"p")
+    (home / "comfy" / "ComfyUI" / "main.py").write_text("")  # ComfyUI ya estaba (no se reinstala)
+
+
 def make(home, fakes, steps_file=None):
     progress = Progress(steps_file or home / "setup.json", inst.STEPS)
     i = inst.Installer(home, Path("uv.exe"), progress, home / "install.log", runner=fakes.runner, fetcher=fakes.fetcher)
@@ -97,10 +106,10 @@ def test_full_install_and_idempotent(env, monkeypatch):
     i, progress = make(env, fakes)
     i.install()
     cfg = json.loads((env / "config.json").read_text())
-    assert cfg["ready"] and cfg["preset"] == "flux2-klein4b"
+    assert cfg["ready"] and cfg["qwen_variant"] == "turbo"
     assert (env / "comfy" / "ComfyUI" / "main.py").exists()
-    for name in PRESETS["flux2-klein4b"].files:
-        assert (env / "comfy" / "ComfyUI" / "models" / FILES[name].folder / name).exists()
+    # Ningún modelo de IA al instalar: «Sin IA» es lo normal y Qwen se descarga al usarlo
+    assert all(u.endswith(".zip") for u in fakes.fetched)
     torch_cmd = next(c for c in fakes.commands if "torch" in c)
     assert "--index-url" in torch_cmd and "cu13" in torch_cmd[-1]
 
@@ -122,6 +131,7 @@ def test_resume_after_cut_download(env, monkeypatch):
         raise ConnectionError("conexión cortada")
 
     monkeypatch.setattr("aire_backend.models.fetch", always_cut)
+    started_download(env)  # una descarga a medias de una vez anterior: se completa al instalar
     i, _ = make(env, fakes)
     i.sleep = lambda s: None
     with pytest.raises(UserError, match="pulsa «Continuar»"):
@@ -326,6 +336,7 @@ def test_model_download_retries_automatically(env, monkeypatch):
         good(url, dest, on_bytes)
 
     monkeypatch.setattr("aire_backend.models.fetch", flaky)
+    started_download(env)
     i, progress = make(env, fakes)
     i.fetch = flaky
     i.sleep = lambda s: None
@@ -375,7 +386,7 @@ def test_run_py_reports_import_crash(tmp_path):
     assert (tmp_path / "AIRE" / "logs" / "crash.log").exists()
 
 
-def test_render_job_downloads_flux_first_time(tmp_path, monkeypatch, fake_server):  # noqa: F811
+def test_render_job_downloads_qwen_turbo_first_time(tmp_path, monkeypatch, fake_server):  # noqa: F811
     home = tmp_path / "AIRE"
     home.mkdir()
     comfy = tmp_path / "ComfyUI"
@@ -391,10 +402,11 @@ def test_render_job_downloads_flux_first_time(tmp_path, monkeypatch, fake_server
             on_bytes(1, 1)
 
     monkeypatch.setattr("aire_backend.models.fetch", fake_fetch)
+    monkeypatch.setattr("aire_backend.models.other_model_roots", lambda: [])  # sin otros ComfyUI del PC
     export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
     progress = Progress(tmp_path / "jobs" / "1" / "job.json", jobmod.STEPS)
     jobmod.run_job(home, export, "", "modelo", "dia", "rapida", 1, progress)
-    assert sorted(fetched) == sorted(PRESETS["flux2-klein4b"].files)
+    assert sorted(fetched) == sorted(PRESETS["qwen21-turbo"].files)  # solo la variante elegida
     fetched.clear()
     jobmod.run_job(home, export, "", "modelo", "dia", "rapida", 1, progress)
     assert fetched == []  # la segunda vez ya no descarga
@@ -409,8 +421,7 @@ def test_compare_mode_makes_eight_labelled_variants(tmp_path, monkeypatch, fake_
     result = jobmod.run_job(home, export, "", "modelo", "dia", "comparar", 5,
                             Progress(None, jobmod.STEPS))
     labels = [img["label"] for img in result["images"]]
-    assert len(labels) == 8 and len(set(labels)) == 8
-    assert any("directo" in l for l in labels) and any("repaso 0.60" in l for l in labels)
+    assert len(labels) == 4 and len(set(labels)) == 4 and all("semilla" in l for l in labels)
 
 
 def test_high_quality_job_uses_qwen(tmp_path, monkeypatch, fake_server):  # noqa: F811
@@ -424,12 +435,13 @@ def test_high_quality_job_uses_qwen(tmp_path, monkeypatch, fake_server):  # noqa
     result = jobmod.run_job(home, export, "", "modelo", "dia", "alta", 1, Progress(None, jobmod.STEPS))
     s = result["images"][0]["settings"]
     # Qwen trabaja a ~1 Mpx en múltiplos de 32 (no reencuadra) y se amplía al tamaño final
-    assert s["width"] % 32 == 0 and s["height"] % 32 == 0 and s["steps"] == 25 and result["engine"] == "qwen21"
+    assert s["width"] % 32 == 0 and s["height"] % 32 == 0 and result["engine"] == "qwen21"
+    assert s["steps"] == 8 and s["lora"].startswith("qwen_image_2.1_turbo")  # variante Turbo por defecto
     assert abs(s["width"] / s["height"] - 480 / 300) < 0.05
     assert Image.open(result["images"][0]["path"]).width == 480
     graph = FakeComfy.queued[-1]
     types = [n["class_type"] for n in graph.values()]
-    assert "TextEncodeQwenImage21" in types and "QwenImage21Cache" in types
+    assert "TextEncodeQwenImage21" in types and "QwenImage21Cache" in types and "LoraLoaderModelOnly" in types
     enc = next(n for n in graph.values() if n["class_type"] == "TextEncodeQwenImage21")
     assert enc["inputs"]["resolution"] == 0 and "images.image_1" in enc["inputs"]
     assert FakeComfy.freed == 1  # libera la memoria antes de cargar Qwen
@@ -439,19 +451,6 @@ def test_qwen_size_keeps_aspect_and_budget():
     from aire_backend.workflows import qwen_size
     w, h = qwen_size(1920, 1080)
     assert (w % 32, h % 32) == (0, 0) and abs(w / h - 16 / 9) < 0.03 and 0.9e6 < w * h < 1.15e6
-
-
-def test_klein_job_uses_two_passes(tmp_path, monkeypatch, fake_server):  # noqa: F811
-    home = tmp_path / "AIRE"
-    home.mkdir()
-    (home / "config.json").write_text(json.dumps({"ready": True, "port": 1, "comfy_dir": str(fake_models(tmp_path))}))
-    monkeypatch.setattr(jobmod.comfyctl, "ensure", lambda h, c, **kw: ComfyClient(fake_server))
-    alta = {k: v for k, v in jobmod.QUALITY["alta"].items() if k != "engine"}
-    monkeypatch.setitem(jobmod.QUALITY, "alta", {**alta, "width": 480, "cycles": False})
-    export = build_interior(tmp_path / "jobs" / "1" / "export", 320, 200)
-    result = jobmod.run_job(home, export, "", "modelo", "dia", "alta", 1, Progress(None, jobmod.STEPS))
-    s = result["images"][0]["settings"]
-    assert s["width"] == 480 and s["upscale"] == 1.5
 
 
 def test_models_found_in_another_comfyui_are_linked_not_downloaded(tmp_path):
@@ -581,10 +580,12 @@ def test_enhance_starts_from_raw_cycles_and_adds_a_new_image(tmp_path, monkeypat
     raw.parent.mkdir()
     Image.new("RGB", (640, 400), (210, 200, 190)).save(raw)
     res = enhance.run_enhance(home, image, tmp_path / "jobs" / "c", 3, Progress(None, enhance.STEPS))
-    assert res["kind"] == "ia" and res["source"] == str(image)
-    stages = FakeComfy.queued[-2:]
-    assert [g["4"]["inputs"]["image"] for g in stages[:1]] == ["aire/base.png"]
-    assert stages[1]["200"]["inputs"]["image"] == "aire/paso1.png"
-    assert all(n["inputs"]["noise_seed"] == 3 for g in stages for n in g.values() if n["class_type"] == "RandomNoise")
-    assert "photorealistic interior" in stages[0]["8"]["inputs"]["text"]
+    assert res["kind"] == "ia" and res["source"] == str(image) and res["engine"] == "qwen21"
+    graph = FakeComfy.queued[-1]
+    loads = [n["inputs"]["image"] for n in graph.values() if n["class_type"] == "LoadImage"]
+    assert loads == ["aire/base_qwen.png"]  # parte del render de Cycles sin acabado
+    enc = next(n for n in graph.values() if n["class_type"] == "TextEncodeQwenImage21")
+    assert "photorealistic interior" in enc["inputs"]["prompt"]
+    assert next(n for n in graph.values() if n["class_type"] == "KSampler")["inputs"]["seed"] == 3
+    assert Image.open(res["images"][0]["path"]).size == (640, 400)
     assert FakeComfy.freed >= 1

@@ -69,6 +69,9 @@ OBJECT_INFO["VAELoader"]["input"]["required"]["vae_name"] = [["ae.safetensors", 
                                                               "qwen_image_2.1_vae_bf16.safetensors"]]
 OBJECT_INFO["CLIPLoader"]["input"]["required"]["clip_name"] = [["qwen_3_4b.safetensors", "qwen3vl_8b_int8_convrot.safetensors"]]
 OBJECT_INFO["CLIPLoader"]["input"]["required"]["type"] = [["lumina2", "flux2", "qwen_image"]]
+OBJECT_INFO["LoraLoaderModelOnly"] = {"input": {"required": {
+    "model": ["MODEL"], "lora_name": [["qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors"]],
+    "strength_model": ["FLOAT", {}]}}}
 # Nodos de Qwen Image 2.1 tal como los publica ComfyUI 0.39 (entradas de imagen dinámicas)
 OBJECT_INFO["QwenImage21Cache"] = {"input": {"required": {"model": ["MODEL"], "device": [["auto", "cpu"]],
                                                           "dtype": [["default", "bf16"]]}}}
@@ -134,7 +137,7 @@ def test_model_catalog_and_recommendation():
         assert all(f in FILES for f in p.files)
     assert recommend(8.0) == {"render": "flux2-klein4b", "edit": "qwen21"}
     assert recommend(None) == {"render": None, "edit": None}
-    assert recommend(24)["edit"] in ("flux2-dev-edit", "qwen2511-edit")
+    assert recommend(24)["edit"] in ("flux2-dev-edit", "qwen2511-edit", "qwen21-grande")
     assert weight_dtype_for(8.0) == "fp8_e4m3fn" and weight_dtype_for(24) == "default"
 
 

@@ -234,6 +234,8 @@ class QwenSettings:
     unet: str = "qwen_image_2.1_int8_convrot.safetensors"
     text_encoder: str = "qwen3vl_8b_int8_convrot.safetensors"
     vae: str = "qwen_image_2.1_vae_bf16.safetensors"
+    lora: str = ""  # p. ej. la LoRA Turbo (8 pasos)
+    gguf: bool = False  # modelo en GGUF: lo carga UnetLoaderGGUF (complemento ComfyUI-GGUF)
     color_lock: float = 0.0
     photo: float = 0.0
     tag: str = ""
@@ -278,7 +280,12 @@ def unpad(img, box: tuple[int, int, int, int], size: tuple[int, int], final: tup
 def qwen21_edit(s: QwenSettings, image: str, extra_refs: tuple[str, ...] = (), prefix: str = "aire/render") -> dict:
     """image (y las referencias) ya subidas a ComfyUI; image debe estar al tamaño final."""
     g = Graph()
-    unet = g.add("UNETLoader", unet_name=s.unet, weight_dtype="default")
+    if s.gguf:
+        unet = g.add("UnetLoaderGGUF", unet_name=s.unet)
+    else:
+        unet = g.add("UNETLoader", unet_name=s.unet, weight_dtype="default")
+    if s.lora:
+        unet = g.add("LoraLoaderModelOnly", model=g.out(unet), lora_name=s.lora, strength_model=1.0)
     model = g.add("QwenImage21Cache", model=g.out(unet), device="auto", dtype="default")
     clip = g.add("CLIPLoader", clip_name=s.text_encoder, type="qwen_image", device="default")
     vae = g.add("VAELoader", vae_name=s.vae)

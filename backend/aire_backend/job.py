@@ -20,11 +20,11 @@ from pathlib import Path
 
 from PIL import Image
 
-from . import comfyctl, cycles_engine, matlib
+from . import comfyctl, cycles_engine, gguf_node, matlib
 from .comfy import CRASH_HELP, ComfyError
 from .installer import Installer
 from .progress import Progress, UserError
-from .models import adopt_existing, download, missing_files
+from .models import PRESETS, adopt_existing, download, download_gb, missing_files, qwen_options, qwen_preset
 from .prompt import build_edit_prompt
 from .photo import photo_finish
 from .scene import load_scene
@@ -34,15 +34,15 @@ from .workflows import KleinSettings, QwenSettings, qwen_size
 # width = tamaño final; upscale > 1 → 1.ª pasada a width/upscale y 2.ª pasada de detalle
 QUALITY = {
 # cycles: la imagen base es un render con luz real (Cycles) en vez de la sencilla
-    "rapida": {"width": 1024, "steps": 4, "upscale": 1.0},
+    "rapida": {"width": 1024, "steps": 4, "upscale": 1.0, "engine": "qwen21"},
     "alta": {"width": 1920, "steps": 4, "upscale": 1.5, "cycles": True, "photo": 1.0, "engine": "qwen21"},
     # sin IA: solo el render de Cycles con el acabado de cámara (fiel al modelo al 100 %)
     "real": {"width": 1920, "steps": 0, "upscale": 1.0, "cycles": True, "photo": 1.0, "ai": False, "samples": 512},
-    "comparar": {"width": 1920, "steps": 4, "upscale": 1.5, "sweep": True, "cycles": True, "photo": 1.0},
+    "comparar": {"width": 1920, "steps": 4, "upscale": 1.5, "sweep": True, "cycles": True, "photo": 1.0,
+                 "engine": "qwen21"},
 }
 
-ENGINE_PRESET = "flux2-klein4b"
-SIZE_GB = {"flux2-klein4b": 4, "qwen21": 16}
+ENGINE_PRESET = "qwen21"  # la IA es siempre Qwen Image 2.1; la variante la elige el usuario
 
 STEPS = ["Preparando la escena", "Descargando el modelo", "Calculando la luz real",
          "Arrancando el motor", "Creando la imagen", "Terminando"]
@@ -60,7 +60,8 @@ def ensure_models(cfg: dict, progress: Progress, preset: str = ENGINE_PRESET) ->
     if not todo:
         progress.step(1, "Ya descargado")
         return
-    progress.step(1, f"Solo la primera vez: unos {SIZE_GB.get(preset, 4)} GB", 0)
+    gb = download_gb(preset, comfy_dir)
+    progress.step(1, f"Solo la primera vez: {PRESETS[preset].title}, unos {max(1, round(gb))} GB", 0)
 
     def on_progress(f, i, n, done, total):
         pct = 100 * done / total if total else None
@@ -71,6 +72,16 @@ def ensure_models(cfg: dict, progress: Progress, preset: str = ENGINE_PRESET) ->
     except OSError as e:
         raise UserError("Se ha cortado la descarga del modelo. Vuelve a intentarlo: "
                         "seguirá donde se quedó.") from e
+
+
+def prepare_qwen(home: Path, cfg: dict, progress: Progress) -> dict:
+    """Descarga (si falta) la variante de Qwen elegida y devuelve sus ajustes para QwenSettings."""
+    preset = qwen_preset(cfg)
+    ensure_models(cfg, progress, preset)
+    opts = qwen_options(preset)
+    if opts.get("gguf") and not gguf_node.installed(cfg):
+        gguf_node.install(home, cfg, on_status=progress.update)
+    return opts
 
 
 def material_library(home: Path, export: Path, progress: Progress) -> Path | None:
@@ -184,7 +195,9 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
     engine = q.get("engine", ENGINE_PRESET)
     full_prompt = build_edit_prompt(passes.scene, a["ids"], a["material"], visible, prompt, style=style, light=light,
                                     albedo=a["albedo"], photo=engine == "qwen21")
-    ensure_models(cfg, progress, engine)
+    qwen_opts = prepare_qwen(home, cfg, progress) if engine == "qwen21" else None
+    if qwen_opts is None:
+        ensure_models(cfg, progress, engine)
 
     if base_image is None and q.get("cycles"):
         # Sin desenfoque en la base de la IA: con él la fidelidad bajaba de 0,94 a 0,70 (pruebas 0.11)
@@ -202,8 +215,10 @@ def run_job(home: Path, export: Path, prompt: str, style: str, light: str, quali
     if engine == "qwen21":
         qw, qh = qwen_size(base.width, base.height)
         base = QwenSettings(width=qw, height=qh, prompt=full_prompt, seed=base.seed,
-                            color_lock=base.color_lock, photo=base.photo)
-    if q.get("sweep"):
+                            color_lock=base.color_lock, photo=base.photo, **qwen_opts)
+    if q.get("sweep") and engine == "qwen21":  # con Qwen se comparan semillas
+        runs = [replace(base, seed=base.seed + i, tag=f"semilla {i + 1}") for i in range(4)]
+    elif q.get("sweep"):
         runs = klein_grid(base, with_light=base_image is not None)
     else:
         runs = [replace(base, seed=base.seed + i) for i in range(max(1, variants))]

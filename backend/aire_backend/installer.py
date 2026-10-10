@@ -28,7 +28,8 @@ from pathlib import Path
 
 from . import comfyctl, cycles_engine
 from .hardware import gpus, ram_gb
-from .models import PRESETS, download, fetch, missing_files, recommend, weight_dtype_for
+from .models import (PRESETS, QWEN_VARIANTS, default_qwen_variant, download, fetch, missing_files, qwen_preset,
+                     recommend, weight_dtype_for)
 from .progress import Progress, UserError
 
 # Versión de ComfyUI contra la que se han validado los flujos de AIRE
@@ -180,6 +181,8 @@ class Installer:
                             f"está {self.home} (ahora hay {free:.0f} GB libres) y vuelve a intentarlo.")
         self.cfg.update(gpu=g[0]["name"], vram_gb=vram, ram_gb=ram_gb(), preset=rec["render"],
                         edit_preset=rec["edit"], weight_dtype=weight_dtype_for(vram), port=COMFY_PORT)
+        if self.cfg.get("qwen_variant") not in QWEN_VARIANTS:
+            self.cfg["qwen_variant"] = default_qwen_variant(vram)
         save_config(self.home, self.cfg)
 
     def get_comfy(self) -> None:
@@ -256,7 +259,15 @@ class Installer:
         save_config(self.home, self.cfg)
 
     def get_models(self, attempts: int = 6) -> None:
-        preset = self.cfg["preset"]
+        # «Sin IA» (Cycles) es el modo normal: el modelo de IA elegido (Qwen) se descarga la primera
+        # vez que se usa, no al instalar. Solo se completa aquí lo que ya estuviera a medias.
+        preset = qwen_preset(self.cfg)
+        if not any((self.comfy_dir / "models" / f.folder / (f.name + ".part")).exists()
+                   for f in missing_files(preset, self.comfy_dir)):
+            self.progress.step(5, "Se descargará la primera vez que uses la IA", 100)
+            self.cfg["models_ok"] = True
+            save_config(self.home, self.cfg)
+            return
         todo = missing_files(preset, self.comfy_dir)
         self.progress.step(5, f"{len(todo)} ficheros por descargar" if todo else "Ya descargado", 0)
         speed = SpeedMeter()
@@ -299,13 +310,10 @@ class Installer:
         client = comfyctl.ensure(self.home, self.cfg, timeout=900, on_wait=lambda t: self.progress.update(
             f"Arrancando el motor por primera vez… {int(t)} s", None))
         from .comfy import validate
-        from .workflows import KleinSettings, ZImageSettings, flux2_klein_edit, zimage_control
-        if self.cfg["preset"] == "zimage-control":
-            wf = zimage_control(ZImageSettings(width=512, height=512, prompt="test",
-                                               weight_dtype=self.cfg["weight_dtype"]), "x.png", "x.png")
-        else:
-            wf = flux2_klein_edit(KleinSettings(width=512, height=512, prompt="test"), "x.png")
-        problems = validate(wf, client.object_info())
+        from .workflows import QwenSettings, qwen21_edit
+        wf = qwen21_edit(QwenSettings(width=512, height=512, prompt="test"), "x.png")
+        # Los modelos aún no están (se descargan al usarlos): solo se comprueba que existan los nodos
+        problems = [p for p in validate(wf, client.object_info()) if "no está disponible" not in p]
         if problems:
             raise RuntimeError("Validación del flujo: " + "; ".join(problems))
 
@@ -317,7 +325,7 @@ class Installer:
         self.get_models()
         self.smoke_test()
         self.cfg["ready"] = True
-        self.cfg["preset_title"] = PRESETS[self.cfg["preset"]].title
+        self.cfg["preset_title"] = PRESETS[qwen_preset(self.cfg)].title
         save_config(self.home, self.cfg)
 
 

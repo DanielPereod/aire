@@ -61,6 +61,7 @@ module Aire
       on('pick_reference') { |_ctx| pick_reference }
       on('edit') { |_ctx, json| start_edit(JSON.parse(json)) }
       on('enhance') { |_ctx, path| start_enhance(path.to_s) }
+      on('set_option') { |_ctx, json| set_option(JSON.parse(json)) }
       @dialog.set_on_closed do
         stop_timer
         @closed = true
@@ -99,7 +100,8 @@ module Aire
     def push_state(history: false)
       state = {
         ready: Env.ready?,
-        config: Env.config.slice('gpu', 'vram_gb', 'ram_gb', 'preset_title'),
+        config: Env.config.slice('gpu', 'vram_gb', 'ram_gb', 'preset_title', 'qwen_variant'),
+        qwen_downloaded: qwen_downloaded,
         setup: task_state(Env.setup_progress_file),
         job: @job_dir ? task_state(File.join(@job_dir, 'job.json')) : nil,
         job_kind: @job_kind
@@ -107,6 +109,38 @@ module Aire
       state[:history] = history_items if history
       js("aire.setState(#{JSON.generate(state)})")
       ensure_timer if running?(state[:setup]) || running?(state[:job])
+    end
+
+    # Ficheros de cada variante de Qwen (backend/aire_backend/models.py, presets qwen21*)
+    QWEN_VAE = 'vae/qwen_image_2.1_vae_bf16.safetensors'
+    QWEN_FILES = {
+      'turbo' => ['diffusion_models/qwen_image_2.1_int8_convrot.safetensors',
+                  'text_encoders/qwen3vl_8b_int8_convrot.safetensors', QWEN_VAE,
+                  'loras/qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors'],
+      'estandar' => ['diffusion_models/qwen_image_2.1_int8_convrot.safetensors',
+                     'text_encoders/qwen3vl_8b_int8_convrot.safetensors', QWEN_VAE],
+      'ligero' => ['diffusion_models/qwen-image-2.1-Q4_K_M.gguf', 'text_encoders/qwen3vl_8b_w4a8.safetensors', QWEN_VAE],
+      'grande' => ['diffusion_models/qwen_image_2.1_bf16.safetensors',
+                   'text_encoders/qwen3vl_8b_bf16.safetensors', QWEN_VAE]
+    }.freeze
+
+    def qwen_downloaded
+      dir = Env.config['comfy_dir']
+      return [] unless dir
+
+      QWEN_FILES.select { |_v, files| files.all? { |f| File.size?(File.join(dir, 'models', f)) } }.keys
+    end
+
+    # Opciones que el usuario cambia en la ventana; se guardan en config.json
+    def set_option(opts)
+      variant = opts['qwen_variant'].to_s
+      return unless QWEN_FILES.key?(variant)
+
+      path = File.join(Env.home, 'config.json')
+      cfg = Env.config
+      cfg['qwen_variant'] = variant
+      File.write(path, JSON.pretty_generate(cfg), mode: 'w:UTF-8')
+      push_state
     end
 
     def task_state(path)

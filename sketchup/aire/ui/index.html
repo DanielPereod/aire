@@ -129,6 +129,18 @@
   .error h2 { color: var(--warn); }
   a.link { color: var(--accent); font-size: 12.5px; }
 
+  /* ---------- modelo de IA ---------- */
+  .models { display: grid; gap: 8px; }
+  .model { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 10px; align-items: start; text-align: left;
+           border: 1px solid var(--line-2); border-radius: var(--radius-sm); background: var(--surface); padding: 9px 12px; }
+  .model:hover { background: var(--surface-2); }
+  .model[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); }
+  .model .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-2); margin-top: 2px; grid-row: span 2; }
+  .model[aria-checked="true"] .dot { border-color: var(--accent); background: radial-gradient(var(--accent) 45%, transparent 50%); }
+  .model b { font-weight: 600; }
+  .model .tag { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+  .model .muted { grid-column: 2 / 4; }
+
   /* ---------- galería ---------- */
   .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
   .shot { position: relative; border-radius: 10px; overflow: hidden; background: var(--line); aspect-ratio: 4 / 3;
@@ -305,7 +317,11 @@
         <details>
           <summary><svg class="i" style="width:15px;height:15px"><use href="#i-gear"/></svg>Opciones avanzadas</summary>
           <p class="muted" id="engine-info"></p>
-          <label class="check"><input type="checkbox" id="compare"> Comparar 8 ajustes técnicos (para pruebas)</label>
+          <div class="field">
+            <div class="label">Modelo de IA <span class="muted">se descarga la primera vez que lo usas</span></div>
+            <div class="models" id="qwen-variants" role="radiogroup" aria-label="Modelo de IA"></div>
+          </div>
+          <label class="check"><input type="checkbox" id="compare"> Comparar 4 variantes (para pruebas)</label>
         </details>
       </div>
     </div>
@@ -516,6 +532,40 @@ function renderPill() {
   pill.className = "pill " + (busy() || setupRunning ? "busy" : ready ? "ready" : "");
   $("pill-text").textContent = busy() ? "Trabajando" : setupRunning ? "Preparando" : ready ? "Listo" : "Sin preparar";
   pill.title = state.config && state.config.gpu ? `${state.config.gpu} · ${state.config.vram_gb} GB` : "";
+}
+
+// ---------- modelo de IA (Qwen Image 2.1) ----------
+const QWEN = [
+  { id: "turbo", name: "Turbo", size: "17 GB (0,85 GB si ya tienes el estándar)", text: "El estándar con la LoRA Turbo: 8 pasos, unas 3 veces más rápido. Recomendado con 8-16 GB." },
+  { id: "estandar", name: "Estándar", size: "16 GB", text: "Calidad de referencia, 25 pasos. Más lento." },
+  { id: "ligero", name: "Ligero (GGUF)", size: "10,4 GB", text: "Mitad de memoria, algo menos de detalle. Para gráficas de menos de 8 GB o poca RAM. Instala el complemento GGUF." },
+  { id: "grande", name: "Grande (bf16)", size: "30 GB", text: "Pesos completos, máxima calidad. Solo con 24 GB de memoria gráfica o más.", min: 24 },
+];
+function defaultVariant(vram) { return vram >= 24 ? "grande" : vram && vram < 8 ? "ligero" : "turbo"; }
+function renderModels(s) {
+  const c = s.config || {};
+  const current = c.qwen_variant || defaultVariant(c.vram_gb);
+  const have = new Set(s.qwen_downloaded || []);
+  const box = $("qwen-variants");
+  box.innerHTML = "";
+  for (const v of QWEN) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "model";
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", String(v.id === current));
+    const tag = have.has(v.id) ? "Descargado" : (v.min && c.vram_gb < v.min ? `Necesita ${v.min} GB` : `Descarga: ${v.size}`);
+    b.innerHTML = `<span class="dot"></span><b></b><span class="tag"></span><span class="muted"></span>`;
+    b.querySelector("b").textContent = v.name + (v.id === defaultVariant(c.vram_gb) ? " · recomendado" : "");
+    b.querySelector(".tag").textContent = tag;
+    b.querySelector(".muted").textContent = v.text;
+    b.onclick = () => {
+      if (v.id === current) return;
+      call("set_option", JSON.stringify({ qwen_variant: v.id }));
+      toast(have.has(v.id) ? `Modelo de IA: ${v.name}` : `Modelo de IA: ${v.name}. Se descargará la próxima vez que uses la IA.`);
+    };
+    box.appendChild(b);
+  }
 }
 
 // ---------- galería ----------
@@ -774,9 +824,10 @@ function applyState(s) {
   if (!s.ready) renderSetup(s.setup);
   else renderJob(s.job, s.job_kind);
   if (s.history) renderGallery(s.history);
+  renderModels(s);
   const c = s.config || {};
   $("engine-info").textContent = c.gpu
-    ? `Tarjeta gráfica: ${c.gpu} (${c.vram_gb} GB) · Memoria: ${c.ram_gb} GB · Motor: ${c.preset_title || ""}` : "";
+    ? `Tarjeta gráfica: ${c.gpu} (${c.vram_gb} GB) · Memoria: ${c.ram_gb} GB · IA: Qwen Image 2.1` : "";
   if (wasBusy && !busy() && s.job && s.job.state === "done" && s.job_kind !== "edit") {
     toast("Imagen lista");
     tab("galeria");
