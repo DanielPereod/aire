@@ -26,6 +26,8 @@ module UI
     def execute_script(code) = @scripts << code
     def visible? = false
     def show; end
+    def bring_to_front; end
+    def close = @on_closed&.call
     def trigger(name, *args) = @callbacks.fetch(name).call(nil, *args)
   end
 
@@ -193,6 +195,16 @@ class WindowTest < Minitest::Test
     @dialog.trigger('render', JSON.generate(style: 'modelo', light: 'dia', quality: 'alta', variants: 1, prompt: ''))
     assert(@dialog.scripts.any? { |s| s.include?('No hay nada visible') })
     assert_empty @spawned
+  end
+
+  def test_reopened_window_answers_again
+    @dialog.close
+    @win.show
+    reopened = @win.instance_variable_get(:@dialog)
+    refute_same @dialog, reopened
+    make_ready
+    reopened.trigger('ready')
+    assert(reopened.scripts.any? { |js| js.start_with?('aire.setState(') })
   end
 
   def test_finished_job_appears_in_gallery

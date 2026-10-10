@@ -229,3 +229,4 @@ como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.
 - 0.12.2: la galería salta los trabajos con un result.json raro o imágenes que ya no existen, en vez de quedarse vacía entera.
 - 0.12.3: la galería salía vacía en Windows: `Dir.glob` trata la barra invertida de `LOCALAPPDATA` como escape y no encontraba ningún trabajo. Se normaliza la ruta a barras normales.
 - 0.12.4: con un modelo grande (más de 50 MB) AIRE avisa antes de leerlo, porque SketchUp se queda parado mientras exporta la geometría. La galería se recarga al pulsar su pestaña, ya que la carga inicial se pierde si SketchUp estaba ocupado (prueba con «7788 cocina», 191 MB). Las miniaturas ya no usan carga diferida.
+- 0.12.5: al cerrar y volver a abrir la ventana salía «SketchUp no ha respondido», porque SketchUp descarta los callbacks del HtmlDialog al cerrarlo. Ahora se crea una ventana nueva cada vez que se reabre (el estado del trabajo en curso se conserva).

@@ -19,23 +19,33 @@ module Aire
     end
 
     def initialize
+      @job_dir = nil
+      @job_kind = nil
+      @timer = nil
+      build_dialog
+    end
+
+    def show
+      return @dialog.bring_to_front if @dialog.visible?
+
+      # Al cerrar la ventana SketchUp olvida sus callbacks: al reabrirla la página no recibía
+      # respuesta («SketchUp no ha respondido»). Se crea una ventana nueva cada vez.
+      build_dialog if @closed
+      @dialog.show
+    end
+
+    private
+
+    def build_dialog
+      @closed = false
       @dialog = UI::HtmlDialog.new(
         dialog_title: 'AIRE · Render con IA', preferences_key: 'AIRE_window',
         width: 560, height: 900, min_width: 420, min_height: 600,
         style: UI::HtmlDialog::STYLE_DIALOG
       )
       @dialog.set_file(File.join(__dir__, 'ui', 'index.html'))
-      @job_dir = nil
-      @job_kind = nil
-      @timer = nil
       register_callbacks
     end
-
-    def show
-      @dialog.visible? ? @dialog.bring_to_front : @dialog.show
-    end
-
-    private
 
     def register_callbacks
       on('ready') { |_ctx| push_state(history: true) }
@@ -51,7 +61,10 @@ module Aire
       on('pick_reference') { |_ctx| pick_reference }
       on('edit') { |_ctx, json| start_edit(JSON.parse(json)) }
       on('enhance') { |_ctx, path| start_enhance(path.to_s) }
-      @dialog.set_on_closed { stop_timer }
+      @dialog.set_on_closed do
+        stop_timer
+        @closed = true
+      end
     end
 
     # Ningún error de Ruby debe dejar la ventana en blanco: se registra y se muestra.
