@@ -297,7 +297,8 @@ module Aire
 
     # ------------------------------------------------------------------ galería
     def history_items(limit = 24)
-      dirs = Dir.glob(File.join(Env.home, 'jobs', '*')).sort.reverse
+      # Dir.glob trata «\» como escape: con C:\Users\... no encuentra nada en Windows
+      dirs = Dir.glob(File.join(Env.home.tr('\\', '/'), 'jobs', '*')).sort.reverse
       items = []
       dirs.each do |dir|
         res = Env.read_json(File.join(dir, 'renders', 'result.json'))
