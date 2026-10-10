@@ -226,3 +226,4 @@ como imágenes 2, 3… «Rápida» sigue con FLUX.2 klein.
 - 0.11.5: sol orientado más bajo (18° de día, 12° de tarde) y más dorado, buscando la luz rasante de las fotos de ejemplo.
 - 0.12.0: «Sin IA» pasa a ser la calidad por defecto (luz real de Cycles). En la galería, el botón «IA» (Procesar con IA) manda la imagen elegida a la IA (Qwen con el prompt de foto), partiendo del render de Cycles sin acabado, y deja una imagen nueva con la etiqueta «Con IA» junto a la original (`enhance.py`).
 - 0.12.1: «Procesar con IA» usa el workflow de Dani «Architecture FLUX2 · Master Render v2» (`workflow_files/`): render a 0,55 Mpx en 4 pasos y ampliación a 1,6 Mpx con refinado suave, con FLUX.2 [klein] 4B. Solo nodos nativos, cabe en 8 GB y tarda unos 25 s. El resultado se deja tal cual, sin fijar colores ni acabado.
+- 0.12.2: la galería salta los trabajos con un result.json raro o imágenes que ya no existen, en vez de quedarse vacía entera.

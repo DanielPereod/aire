@@ -301,14 +301,21 @@ module Aire
       items = []
       dirs.each do |dir|
         res = Env.read_json(File.join(dir, 'renders', 'result.json'))
-        next unless res
+        next unless res.is_a?(Hash)
 
-        res['images'].each do |img|
-          thumb = img['thumb'] && File.exist?(img['thumb']) ? Base64.strict_encode64(File.binread(img['thumb'])) : nil
-          items << { path: img['path'], thumb: thumb && "data:image/jpeg;base64,#{thumb}",
-                     style: res['style'], light: res['light'], text: res['user_prompt'],
-                     created: res['created'], label: img['label'], quality: res['quality'],
-                     kind: res['kind'] || 'render', source: res['source'] }
+        # un trabajo raro (copiado, a medias o de otra versión) no debe dejar vacía la galería
+        begin
+          Array(res['images']).each do |img|
+            next unless img.is_a?(Hash) && img['path'] && File.exist?(img['path'])
+
+            thumb = img['thumb'] && File.exist?(img['thumb']) ? Base64.strict_encode64(File.binread(img['thumb'])) : nil
+            items << { path: img['path'], thumb: thumb && "data:image/jpeg;base64,#{thumb}",
+                       style: res['style'], light: res['light'], text: res['user_prompt'],
+                       created: res['created'], label: img['label'], quality: res['quality'],
+                       kind: res['kind'] || 'render', source: res['source'] }
+          end
+        rescue StandardError
+          next
         end
         break if items.size >= limit
       end
