@@ -79,8 +79,11 @@ def prepare_qwen(home: Path, cfg: dict, progress: Progress) -> dict:
     preset = qwen_preset(cfg)
     ensure_models(cfg, progress, preset)
     opts = qwen_options(preset)
-    if opts.get("gguf") and not gguf_node.installed(cfg):
-        gguf_node.install(home, cfg, on_status=progress.update)
+    if opts.get("gguf"):
+        if not gguf_node.installed(cfg):
+            gguf_node.install(home, cfg, on_status=progress.update)
+        elif comfyctl.is_up(cfg) and "UnetLoaderGGUF" not in comfyctl.ensure(home, cfg).object_info():
+            comfyctl.stop(home, cfg)  # instalado pero ComfyUI arrancó antes: reiniciarlo
     return opts
 
 

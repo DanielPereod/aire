@@ -65,10 +65,10 @@ FILES = {f.name: f for f in [
     # Turbo: LoRA oficial extraída de Qwen-Image-2.1-Turbo; con el modelo de arriba, 8 pasos en vez de 25
     ModelFile("qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors", "loras",
               "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/loras/qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors", 0.85),
-    # Ligero: modelo en GGUF de 4 bits (unsloth) y codificador de texto oficial en w4a8.
+    # Ligero: modelo en GGUF de 4 bits (Abiray, nombres de tensores de ComfyUI; el de unsloth no carga en ComfyUI-GGUF) y codificador de texto oficial en w4a8.
     # Necesita el complemento ComfyUI-GGUF (se instala al elegir esta variante)
-    ModelFile("qwen-image-2.1-Q4_K_M.gguf", "diffusion_models",
-              "https://huggingface.co/unsloth/Qwen-Image-2.1-GGUF/resolve/main/qwen-image-2.1-Q4_K_M.gguf", 3.9),
+    ModelFile("qwen_image_2.1_Q4_K_M.gguf", "diffusion_models",
+              "https://huggingface.co/Abiray/Qwen-Image-2.1-GGUF/resolve/main/qwen_image_2.1_Q4_K_M.gguf", 3.9),
     ModelFile("qwen3vl_8b_w4a8.safetensors", "text_encoders",
               "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_w4a8.safetensors", 5.9),
     # Grande: pesos completos en bf16, para gráficas de 24 GB o más
@@ -111,10 +111,10 @@ PRESETS = {p.id: p for p in [
     ),
     Preset(
         "qwen21-gguf", "Qwen Image 2.1 ligero (GGUF 4 bits)", "edit", 6,
-        ("qwen-image-2.1-Q4_K_M.gguf", "qwen3vl_8b_w4a8.safetensors", "qwen_image_2.1_vae_bf16.safetensors"),
+        ("qwen_image_2.1_Q4_K_M.gguf", "qwen3vl_8b_w4a8.safetensors", "qwen_image_2.1_vae_bf16.safetensors"),
         "ver la ficha del modelo en Hugging Face",
-        "Mitad de tamaño que el estándar, para poca memoria. Algo menos de detalle; necesita ComfyUI-GGUF.",
-        {"steps": 25, "unet": "qwen-image-2.1-Q4_K_M.gguf", "text_encoder": "qwen3vl_8b_w4a8.safetensors",
+        "Mitad de tamaño que el estándar, para poca memoria; más lento (unos 105 s frente a 33 s del Turbo en una RTX 5060). Necesita ComfyUI-GGUF.",
+        {"steps": 25, "unet": "qwen_image_2.1_Q4_K_M.gguf", "text_encoder": "qwen3vl_8b_w4a8.safetensors",
          "gguf": True},
     ),
     Preset(

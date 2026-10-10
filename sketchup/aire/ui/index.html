@@ -538,7 +538,7 @@ function renderPill() {
 const QWEN = [
   { id: "turbo", name: "Turbo", size: "17 GB (0,85 GB si ya tienes el estándar)", text: "El estándar con la LoRA Turbo: 8 pasos, unas 3 veces más rápido. Recomendado con 8-16 GB." },
   { id: "estandar", name: "Estándar", size: "16 GB", text: "Calidad de referencia, 25 pasos. Más lento." },
-  { id: "ligero", name: "Ligero (GGUF)", size: "10,4 GB", text: "Mitad de memoria, algo menos de detalle. Para gráficas de menos de 8 GB o poca RAM. Instala el complemento GGUF." },
+  { id: "ligero", name: "Ligero (GGUF)", size: "10,4 GB", text: "Ocupa la mitad en disco y en RAM, pero es más lento (unos 1,5-2 min). Para gráficas de menos de 8 GB o poca RAM. Instala el complemento GGUF." },
   { id: "grande", name: "Grande (bf16)", size: "30 GB", text: "Pesos completos, máxima calidad. Solo con 24 GB de memoria gráfica o más.", min: 24 },
 ];
 function defaultVariant(vram) { return vram >= 24 ? "grande" : vram && vram < 8 ? "ligero" : "turbo"; }

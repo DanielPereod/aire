@@ -119,7 +119,7 @@ module Aire
                   'loras/qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors'],
       'estandar' => ['diffusion_models/qwen_image_2.1_int8_convrot.safetensors',
                      'text_encoders/qwen3vl_8b_int8_convrot.safetensors', QWEN_VAE],
-      'ligero' => ['diffusion_models/qwen-image-2.1-Q4_K_M.gguf', 'text_encoders/qwen3vl_8b_w4a8.safetensors', QWEN_VAE],
+      'ligero' => ['diffusion_models/qwen_image_2.1_Q4_K_M.gguf', 'text_encoders/qwen3vl_8b_w4a8.safetensors', QWEN_VAE],
       'grande' => ['diffusion_models/qwen_image_2.1_bf16.safetensors',
                    'text_encoders/qwen3vl_8b_bf16.safetensors', QWEN_VAE]
     }.freeze

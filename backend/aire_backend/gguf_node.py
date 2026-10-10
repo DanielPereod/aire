@@ -57,4 +57,4 @@ def install(home: Path, cfg: dict, on_status=None) -> None:
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         zpath.unlink(missing_ok=True)
-    comfyctl.stop(home)  # ComfyUI solo carga complementos al arrancar
+    comfyctl.stop(home, cfg)  # ComfyUI solo carga complementos al arrancar
