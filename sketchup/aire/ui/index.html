@@ -437,6 +437,7 @@ function tab(name) {
   for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.tab === name));
   for (const n of ["crear", "editar", "galeria"]) show("tab-" + n, n === name);
   if (name === "editar") requestAnimationFrame(sizeCanvas);
+  if (name === "galeria") call("gallery"); // recarga: tras leer un modelo grande la primera carga pudo perderse
 }
 for (const t of document.querySelectorAll(".tab")) t.onclick = () => tab(t.dataset.tab);
 $("btn-go-gallery").onclick = () => tab("galeria");
@@ -533,7 +534,6 @@ function renderGallery(items) {
     card.className = "shot";
     const img = document.createElement("img");
     img.alt = "Imagen creada por AIRE";
-    img.loading = "lazy";
     if (it.thumb) img.src = it.thumb;
     img.onclick = () => call("open_image", it.path);
     card.appendChild(img);

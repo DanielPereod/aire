@@ -39,6 +39,7 @@ module Aire
 
     def register_callbacks
       on('ready') { |_ctx| push_state(history: true) }
+      on('gallery') { |_ctx| push_state(history: true) }
       on('install') { |_ctx| start_install }
       on('render') { |_ctx, json| start_render(JSON.parse(json)) }
       on('open_image') { |_ctx, path| open_path(path) }
@@ -159,9 +160,17 @@ module Aire
       return if @job_dir && running?(task_state(File.join(@job_dir, 'job.json')))
 
       quality = WIDTHS.key?(params['quality']) ? params['quality'] : 'alta'
+      model = Sketchup.active_model
+      if !@warned_big && big_model?(model)
+        # SketchUp se queda parado mientras se lee la geometría: avisar antes y dejar que la ventana lo pinte
+        @warned_big = true
+        js("aire.toast(#{JSON.generate('Modelo grande: SketchUp se quedará parado unos minutos mientras AIRE lo lee. No lo cierres.')})")
+        UI.start_timer(0.3, false) { start_render(params) }
+        return
+      end
+      @warned_big = false
       job_dir = File.join(Env.home, 'jobs', Time.now.strftime('%Y%m%d-%H%M%S'))
       export_dir = File.join(job_dir, 'export')
-      model = Sketchup.active_model
       result = Exporter.new(model, model.active_view, width: WIDTHS[quality]).export(export_dir)
       if result[:triangles].zero?
         FileUtils.rm_rf(job_dir)
@@ -182,6 +191,14 @@ module Aire
       push_state
     rescue StandardError => e
       notify("No se ha podido leer el modelo: #{e.message}")
+    end
+
+    BIG_MODEL_BYTES = 50 * 1024 * 1024
+
+    def big_model?(model)
+      model.path.to_s != '' && File.exist?(model.path) && File.size(model.path) > BIG_MODEL_BYTES
+    rescue StandardError
+      false
     end
 
     # ------------------------------------------------------------------ edición

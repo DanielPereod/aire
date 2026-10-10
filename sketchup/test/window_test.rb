@@ -202,6 +202,7 @@ class WindowTest < Minitest::Test
     renders = File.join(job_dir, 'renders')
     FileUtils.mkdir_p(renders)
     File.binwrite(File.join(renders, 'render_00_thumb.jpg'), 'JPEGDATA')
+    File.binwrite(File.join(renders, 'render_00.png'), 'PNGDATA')
     File.write(File.join(renders, 'result.json'), JSON.generate(
       style: 'japandi', light: 'dia', user_prompt: '', created: Time.now.to_f,
       images: [{ path: File.join(renders, 'render_00.png'), thumb: File.join(renders, 'render_00_thumb.jpg') }]
