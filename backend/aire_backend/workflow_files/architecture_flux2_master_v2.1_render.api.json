@@ -1,0 +1,246 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux-2-klein-4b-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "KLEIN 4B DISTILLED - 8 GB preset"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Qwen text encoder - automatic offload"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "_meta": {
+      "title": "FLUX.2 VAE"
+    }
+  },
+  "4": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "WhatsApp Image 2026-10-08 at 18.46.35 (1).jpeg"
+    },
+    "_meta": {
+      "title": "1. TARGET VIEW - SketchUp / V-Ray"
+    }
+  },
+  "5": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 0.55,
+      "resolution_steps": 16,
+      "image": [
+        "4",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Target resolution - start at 0.55 MP"
+    }
+  },
+  "6": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "5",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Camera aspect ratio from target"
+    }
+  },
+  "7": {
+    "class_type": "VAEEncodeTiled",
+    "inputs": {
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 64,
+      "temporal_overlap": 8,
+      "pixels": [
+        "5",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Encode target in tiles"
+    }
+  },
+  "8": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Convert image 1 into a photorealistic interior architectural photograph. Preserve the exact camera position, perspective, framing and room geometry of image 1. Keep all walls, openings, ceiling heights, built-in cabinetry, furniture shapes, counts and positions. Preserve object identities and material assignments. Do not redesign the room, move objects, add furniture, crop the image or change the lens. Remove drawn black sketch outlines. Lighting: mid-afternoon sunlight entering low from the side, casting long soft dappled tree-leaf shadows across the floor, the cabinet fronts and the table. Bright sunlit patches against gentle shade, soft warm bounce light, lifted shadows, airy and luminous atmosphere, slight natural haze.  Realistic roughness, subtle reflections on countertops and appliances, crisp contact shadows. High-end editorial interior photography, full-frame camera, natural look. Return one full-frame image, no collage or text.",
+      "clip": [
+        "2",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "DESIGN BRIEF - keep identical between views"
+    }
+  },
+  "9": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "8",
+        0
+      ],
+      "latent": [
+        "7",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Reference 1 = target geometry"
+    }
+  },
+  "10": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": [
+        "6",
+        0
+      ],
+      "height": [
+        "6",
+        1
+      ],
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "Canvas size from target - batch 1"
+    }
+  },
+  "11": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 261321
+    },
+    "_meta": {
+      "title": "Seed - fixed for comparisons"
+    }
+  },
+  "12": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "_meta": {
+      "title": "Euler"
+    }
+  },
+  "13": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": 4,
+      "width": [
+        "6",
+        0
+      ],
+      "height": [
+        "6",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "Klein distilled - 4 steps"
+    }
+  },
+  "14": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "conditioning": [
+        "9",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Native guidance - equivalent CFG 1"
+    }
+  },
+  "15": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "11",
+        0
+      ],
+      "guider": [
+        "14",
+        0
+      ],
+      "sampler": [
+        "12",
+        0
+      ],
+      "sigmas": [
+        "13",
+        0
+      ],
+      "latent_image": [
+        "10",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Render"
+    }
+  },
+  "16": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 64,
+      "temporal_overlap": 8,
+      "samples": [
+        "15",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Decode in tiles - 8 GB"
+    }
+  },
+  "17": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Architecture/01_Master_Render",
+      "images": [
+        "16",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Saved render with embedded workflow"
+    }
+  }
+}
