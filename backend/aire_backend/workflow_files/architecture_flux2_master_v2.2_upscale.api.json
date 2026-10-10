@@ -1,0 +1,258 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux-2-klein-4b-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "KLEIN 4B DISTILLED - 8 GB preset"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Qwen text encoder - automatic offload"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "_meta": {
+      "title": "FLUX.2 VAE"
+    }
+  },
+  "8": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Convert image 1 into a photorealistic interior architectural photograph. Preserve the exact camera position, perspective, framing and room geometry of image 1. Keep all walls, openings, ceiling heights, built-in cabinetry, furniture shapes, counts and positions. Preserve object identities and material assignments. Do not redesign the room, move objects, add furniture, crop the image or change the lens. Remove drawn black sketch outlines. Lighting: mid-afternoon sunlight entering low from the side, casting long soft dappled tree-leaf shadows across the floor, the cabinet fronts and the table. Bright sunlit patches against gentle shade, soft warm bounce light, lifted shadows, airy and luminous atmosphere, slight natural haze.  Realistic roughness, subtle reflections on countertops and appliances, crisp contact shadows. High-end editorial interior photography, full-frame camera, natural look. Return one full-frame image, no collage or text.",
+      "clip": [
+        "2",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "DESIGN BRIEF - keep identical between views"
+    }
+  },
+  "11": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 261321
+    },
+    "_meta": {
+      "title": "Seed - fixed for comparisons"
+    }
+  },
+  "12": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "_meta": {
+      "title": "Euler"
+    }
+  },
+  "101": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1.6,
+      "resolution_steps": 16,
+      "image": [
+        "200",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "UPSCALE 1 - resolucion final (1.6 MP; prueba 2.0)"
+    }
+  },
+  "102": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "101",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Tamano upscale"
+    }
+  },
+  "103": {
+    "class_type": "VAEEncodeTiled",
+    "inputs": {
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 64,
+      "temporal_overlap": 8,
+      "pixels": [
+        "101",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Encode upscale en tiles"
+    }
+  },
+  "104": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "8",
+        0
+      ],
+      "latent": [
+        "201",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Referencia = render aprobado"
+    }
+  },
+  "105": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "conditioning": [
+        "104",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Guider upscale"
+    }
+  },
+  "106": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": 12,
+      "width": [
+        "102",
+        0
+      ],
+      "height": [
+        "102",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "Scheduler upscale - 12 pasos base"
+    }
+  },
+  "107": {
+    "class_type": "SplitSigmasDenoise",
+    "inputs": {
+      "denoise": 0.17,
+      "sigmas": [
+        "106",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "DETALLE UPSCALE - denoise 0.17 (0.10 fiel / 0.25 mas detalle)"
+    }
+  },
+  "108": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "11",
+        0
+      ],
+      "guider": [
+        "105",
+        0
+      ],
+      "sampler": [
+        "12",
+        0
+      ],
+      "sigmas": [
+        "107",
+        1
+      ],
+      "latent_image": [
+        "103",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Refinado upscale"
+    }
+  },
+  "109": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 64,
+      "temporal_overlap": 8,
+      "samples": [
+        "108",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Decode upscale en tiles"
+    }
+  },
+  "110": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Architecture/01_Master_Upscaled",
+      "images": [
+        "109",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Guardado - render upscale"
+    }
+  },
+  "200": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "render.png"
+    },
+    "_meta": {
+      "title": "Render de la etapa 1"
+    }
+  },
+  "201": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "200",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "latente de referencia"
+    }
+  }
+}

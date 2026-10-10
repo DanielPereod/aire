@@ -63,9 +63,11 @@ def validate(graph: dict, object_info: dict) -> list[str]:
         spec = {**info.get("input", {}).get("required", {}), **info.get("input", {}).get("optional", {})}
         required = info.get("input", {}).get("required", {})
         for name in required:
-            if name not in node["inputs"]:
+            if name not in node["inputs"] and not any(k.startswith(name + ".") for k in node["inputs"]):
                 problems.append(f"{ct}: falta la entrada obligatoria {name!r}")
         for name, value in node["inputs"].items():
+            if name not in spec and name.split(".")[0] in spec:
+                continue  # entrada dinámica («images.image_1» de una lista que crece)
             if name not in spec:
                 problems.append(f"{ct}: entrada desconocida {name!r}")
                 continue
@@ -80,6 +82,10 @@ def validate(graph: dict, object_info: dict) -> list[str]:
                 problems.append(f"{ct}.{name} = {value!r} no está disponible "
                                 f"(¿falta descargar el modelo? opciones: {options[:5]}{'…' if len(options) > 5 else ''})")
     return problems
+
+
+CRASH_HELP = ("El motor de IA se ha cerrado de golpe. Suele ser falta de memoria RAM: cierra otros programas "
+              "pesados (otro ComfyUI, el navegador, juegos) y vuelve a intentarlo.")
 
 
 class ComfyClient:
@@ -99,6 +105,8 @@ class ComfyClient:
             raise ComfyError(f"ComfyUI {e.code} en {path}: {body[:2000]}") from e
         except urllib.error.URLError as e:
             raise ComfyError(f"No se puede conectar con ComfyUI en {self.server}: {e.reason}") from e
+        except ConnectionError as e:  # se ha cerrado a mitad de respuesta
+            raise ComfyError(f"No se puede conectar con ComfyUI en {self.server}: {e}") from e
 
     def _json(self, path: str, payload: dict | None = None):
         data = json.dumps(payload).encode() if payload is not None else None
@@ -111,6 +119,14 @@ class ComfyClient:
 
     def system_stats(self) -> dict:
         return self._json("/system_stats")
+
+    def free(self) -> None:
+        """Descarga los modelos de la memoria (RAM y VRAM) antes de cargar otro motor grande."""
+        try:
+            self._request("/free", json.dumps({"unload_models": True, "free_memory": True}).encode(),
+                          {"Content-Type": "application/json"})
+        except ComfyError:
+            pass
 
     def upload_image(self, path: Path, subfolder: str = "aire") -> str:
         """Sube una imagen a input/<subfolder>/ y devuelve el valor para LoadImage."""

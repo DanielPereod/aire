@@ -21,6 +21,7 @@ class ModelFile:
     name: str
     folder: str  # carpeta dentro de ComfyUI/models
     url: str
+    size_gb: float = 0.0  # aproximado, para avisar antes de descargar
 
 
 FILES = {f.name: f for f in [
@@ -53,6 +54,32 @@ FILES = {f.name: f for f in [
               "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"),
     ModelFile("qwen_image_vae.safetensors", "vae",
               "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors"),
+    # Qwen Image 2.1 en int8 (plantilla oficial «image_qwen_image_2_1_image_edit»): cabe en 8 GB
+    # descargando parte a la RAM; ~80 s por imagen en una RTX 5060
+    ModelFile("qwen_image_2.1_int8_convrot.safetensors", "diffusion_models",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors", 6.8),
+    ModelFile("qwen3vl_8b_int8_convrot.safetensors", "text_encoders",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors", 8.7),
+    ModelFile("qwen_image_2.1_vae_bf16.safetensors", "vae",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors", 0.6),
+    # Turbo: LoRA oficial extraída de Qwen-Image-2.1-Turbo; con el modelo de arriba, 8 pasos en vez de 25
+    ModelFile("qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors", "loras",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/loras/qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors", 0.85),
+    # Ligero: modelo en GGUF de 4 bits (Abiray, nombres de tensores de ComfyUI; el de unsloth no carga en ComfyUI-GGUF) y codificador de texto oficial en w4a8.
+    # Necesita el complemento ComfyUI-GGUF (se instala al elegir esta variante)
+    ModelFile("qwen_image_2.1_Q4_K_M.gguf", "diffusion_models",
+              "https://huggingface.co/Abiray/Qwen-Image-2.1-GGUF/resolve/main/qwen_image_2.1_Q4_K_M.gguf", 3.9),
+    ModelFile("qwen3vl_8b_w4a8.safetensors", "text_encoders",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_w4a8.safetensors", 5.9),
+    # Ampliar: Real-ESRGAN x4plus (BSD-3), modelo de superresolución de 64 MB que ComfyUI usa
+    # con sus nodos nativos UpscaleModelLoader + ImageUpscaleWithModel
+    ModelFile("RealESRGAN_x4plus.pth", "upscale_models",
+              "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth", 0.07),
+    # Grande: pesos completos en bf16, para gráficas de 24 GB o más
+    ModelFile("qwen_image_2.1_bf16.safetensors", "diffusion_models",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_bf16.safetensors", 13.3),
+    ModelFile("qwen3vl_8b_bf16.safetensors", "text_encoders",
+              "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_bf16.safetensors", 16.3),
 ]}
 
 
@@ -69,6 +96,43 @@ class Preset:
 
 
 PRESETS = {p.id: p for p in [
+    Preset(
+        "qwen21", "Qwen Image 2.1 (máxima calidad)", "edit", 8,
+        ("qwen_image_2.1_int8_convrot.safetensors", "qwen3vl_8b_int8_convrot.safetensors",
+         "qwen_image_2.1_vae_bf16.safetensors"),
+        "ver la ficha del modelo en Hugging Face",
+        "Edición con varias imágenes de referencia. Unos 16 GB; con 8 GB de VRAM ComfyUI pasa parte "
+        "a la RAM (recomendado 32 GB).",
+        {"steps": 25, "cfg": 1.0, "sampler": "euler", "scheduler": "simple"},
+    ),
+    Preset(
+        "qwen21-turbo", "Qwen Image 2.1 Turbo (rápido)", "edit", 8,
+        ("qwen_image_2.1_int8_convrot.safetensors", "qwen3vl_8b_int8_convrot.safetensors",
+         "qwen_image_2.1_vae_bf16.safetensors", "qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors"),
+        "ver la ficha del modelo en Hugging Face",
+        "El modelo estándar con la LoRA Turbo oficial: 8 pasos en vez de 25, unas 3 veces más rápido.",
+        {"steps": 8, "lora": "qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors"},
+    ),
+    Preset(
+        "qwen21-gguf", "Qwen Image 2.1 ligero (GGUF 4 bits)", "edit", 6,
+        ("qwen_image_2.1_Q4_K_M.gguf", "qwen3vl_8b_w4a8.safetensors", "qwen_image_2.1_vae_bf16.safetensors"),
+        "ver la ficha del modelo en Hugging Face",
+        "Mitad de tamaño que el estándar, para poca memoria; más lento (unos 105 s frente a 33 s del Turbo en una RTX 5060). Necesita ComfyUI-GGUF.",
+        {"steps": 25, "unet": "qwen_image_2.1_Q4_K_M.gguf", "text_encoder": "qwen3vl_8b_w4a8.safetensors",
+         "gguf": True},
+    ),
+    Preset(
+        "qwen21-grande", "Qwen Image 2.1 completo (bf16)", "edit", 24,
+        ("qwen_image_2.1_bf16.safetensors", "qwen3vl_8b_bf16.safetensors", "qwen_image_2.1_vae_bf16.safetensors"),
+        "ver la ficha del modelo en Hugging Face",
+        "Pesos completos, máxima calidad. Solo con 24 GB de memoria gráfica o más.",
+        {"steps": 25, "unet": "qwen_image_2.1_bf16.safetensors", "text_encoder": "qwen3vl_8b_bf16.safetensors"},
+    ),
+    Preset(
+        "upscale-esrgan", "Real-ESRGAN x4 (ampliar)", "upscale", 4,
+        ("RealESRGAN_x4plus.pth",), "BSD-3-Clause",
+        "Amplía la imagen final a 2× (o 4×) con detalle nítido, en segundos.",
+    ),
     Preset(
         "flux2-klein4b", "FLUX.2 [klein] 4B (fotorrealiza la imagen base del modelo)", "render", 8,
         ("flux-2-klein-4b-fp8.safetensors", "qwen_3_4b.safetensors", "flux2-vae.safetensors"),
@@ -119,6 +183,37 @@ def recommend(vram_gb: float | None) -> dict[str, str | None]:
     return out
 
 
+# Variantes de Qwen que el usuario elige en «Opciones avanzadas» (config.json → qwen_variant).
+# Solo se descarga la elegida, y la primera vez que se usa.
+QWEN_VARIANTS = {"turbo": "qwen21-turbo", "estandar": "qwen21", "ligero": "qwen21-gguf", "grande": "qwen21-grande"}
+
+
+def default_qwen_variant(vram_gb: float | None) -> str:
+    if vram_gb and vram_gb >= 24:
+        return "grande"
+    if vram_gb is not None and vram_gb < 8:
+        return "ligero"
+    return "turbo"
+
+
+def qwen_preset(cfg: dict) -> str:
+    """Preset de Qwen elegido (o el recomendado para esta gráfica)."""
+    v = cfg.get("qwen_variant")
+    if v not in QWEN_VARIANTS:
+        v = default_qwen_variant(cfg.get("vram_gb"))
+    return QWEN_VARIANTS[v]
+
+
+def qwen_options(preset_id: str) -> dict:
+    """Ajustes de QwenSettings para un preset: modelo, codificador, LoRA, pasos y si es GGUF."""
+    st = PRESETS[preset_id].settings
+    return {k: st[k] for k in ("steps", "unet", "text_encoder", "lora", "gguf") if k in st}
+
+
+def download_gb(preset_id: str, comfy_dir: Path) -> float:
+    return sum(f.size_gb for f in missing_files(preset_id, comfy_dir))
+
+
 def weight_dtype_for(vram_gb: float | None) -> str:
     """Z-Image en bf16 ocupa ~12 GB: por debajo de 16 GB se carga en FP8."""
     return "default" if vram_gb and vram_gb >= 16 else "fp8_e4m3fn"
@@ -128,6 +223,55 @@ def missing_files(preset_id: str, comfy_dir: Path) -> list[ModelFile]:
     return [FILES[n] for n in PRESETS[preset_id].files
             if not (comfy_dir / "models" / FILES[n].folder / n).is_file()
             or (comfy_dir / "models" / FILES[n].folder / n).stat().st_size == 0]
+
+
+def other_model_roots() -> list[Path]:
+    """Carpetas «models» de otros ComfyUI del ordenador (StabilityMatrix, ComfyUI Desktop,
+    portables): si ya tienen un fichero, se aprovecha en vez de descargarlo otra vez."""
+    import os
+    home = Path(os.environ.get("USERPROFILE") or Path.home())
+    patterns = [
+        (home / "Downloads", "StabilityMatrix*/Data/Packages/*/models"),
+        (home / "Descargas", "StabilityMatrix*/Data/Packages/*/models"),
+        (home, "StabilityMatrix*/Data/Packages/*/models"),
+        (Path(os.environ.get("APPDATA", home)), "StabilityMatrix/Packages/*/models"),
+        (home / "Documents", "ComfyUI/models"),
+        (home / "Documentos", "ComfyUI/models"),
+        (home / "Documents", "ComfyUI*/ComfyUI/models"),
+        (Path("C:/"), "ComfyUI*/ComfyUI/models"),
+        (Path("C:/"), "ComfyUI*/models"),
+    ]
+    roots = []
+    for base, pattern in patterns:
+        try:
+            roots += [p for p in base.glob(pattern) if p.is_dir()]
+        except OSError:
+            continue
+    return roots
+
+
+def adopt_existing(preset_id: str, comfy_dir: Path, roots: list[Path] | None = None) -> list[str]:
+    """Enlaza (o copia si no se puede) los ficheros del preset que ya estén en otro ComfyUI.
+    Un enlace duro no ocupa espacio extra ni tarda nada en el mismo disco."""
+    import os
+    import shutil
+    adopted = []
+    for f in missing_files(preset_id, comfy_dir):
+        for root in roots if roots is not None else other_model_roots():
+            src = root / f.folder / f.name
+            if not src.is_file() or src.stat().st_size == 0:
+                continue
+            dest = comfy_dir / "models" / f.folder / f.name
+            if dest.resolve() == src.resolve():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(src, dest)
+            except OSError:
+                shutil.copyfile(src, dest)
+            adopted.append(f.name)
+            break
+    return adopted
 
 
 def fetch(url: str, dest: Path, on_bytes=None, chunk: int = 1 << 22) -> None:

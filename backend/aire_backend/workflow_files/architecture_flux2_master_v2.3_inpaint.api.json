@@ -1,0 +1,334 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux-2-klein-4b-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "KLEIN 4B DISTILLED - 8 GB preset"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Qwen text encoder - automatic offload"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "_meta": {
+      "title": "FLUX.2 VAE"
+    }
+  },
+  "12": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "_meta": {
+      "title": "Euler"
+    }
+  },
+  "112": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "WhatsApp Image 2026-09-25 at 17.40.38 (1).jpeg"
+    },
+    "_meta": {
+      "title": "RETOQUE 1 - carga el PNG y pinta la mascara (clic dcho > Open in MaskEditor)"
+    }
+  },
+  "113": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1.6,
+      "resolution_steps": 16,
+      "image": [
+        "112",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Tamano de trabajo (pon los MP de tu imagen: 1.6 si viene del upscale)"
+    }
+  },
+  "114": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "113",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Tamano retoque"
+    }
+  },
+  "115": {
+    "class_type": "GrowMask",
+    "inputs": {
+      "expand": 12,
+      "tapered_corners": true,
+      "mask": [
+        "112",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "Ampliar mascara (px)"
+    }
+  },
+  "116": {
+    "class_type": "MaskToImage",
+    "inputs": {
+      "mask": [
+        "115",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Mascara a imagen"
+    }
+  },
+  "117": {
+    "class_type": "ImageBlur",
+    "inputs": {
+      "blur_radius": 15,
+      "sigma": 5,
+      "image": [
+        "116",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Suavizar borde de la mascara"
+    }
+  },
+  "118": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "channel": "red",
+      "image": [
+        "117",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Mascara suave"
+    }
+  },
+  "119": {
+    "class_type": "VAEEncodeTiled",
+    "inputs": {
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 64,
+      "temporal_overlap": 8,
+      "pixels": [
+        "113",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Encode retoque en tiles"
+    }
+  },
+  "120": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Edit only the masked area of image 1. Keep the exact camera, perspective, lighting, materials and everything outside the mask unchanged. Fix: floor-length white linen curtain with natural soft folds, realistic fabric texture and contact shadow.",
+      "clip": [
+        "2",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "PROMPT DE RETOQUE - describe solo lo que cambia dentro de la mascara"
+    }
+  },
+  "121": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "120",
+        0
+      ],
+      "latent": [
+        "119",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Referencia = imagen a retocar"
+    }
+  },
+  "122": {
+    "class_type": "SetLatentNoiseMask",
+    "inputs": {
+      "samples": [
+        "119",
+        0
+      ],
+      "mask": [
+        "118",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Solo regenerar la zona pintada"
+    }
+  },
+  "123": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 45267491738986
+    },
+    "_meta": {
+      "title": "Semilla retoque (cambia para variaciones)"
+    }
+  },
+  "124": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "conditioning": [
+        "121",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Guider retoque"
+    }
+  },
+  "125": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": 12,
+      "width": [
+        "114",
+        0
+      ],
+      "height": [
+        "114",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "Scheduler retoque - 12 pasos base"
+    }
+  },
+  "126": {
+    "class_type": "SplitSigmasDenoise",
+    "inputs": {
+      "denoise": 0.5,
+      "sigmas": [
+        "125",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "FUERZA RETOQUE - 0.5 (0.3 sutil / 0.8-1.0 sustituir objeto)"
+    }
+  },
+  "127": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "123",
+        0
+      ],
+      "guider": [
+        "124",
+        0
+      ],
+      "sampler": [
+        "12",
+        0
+      ],
+      "sigmas": [
+        "126",
+        1
+      ],
+      "latent_image": [
+        "122",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Retoque"
+    }
+  },
+  "128": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 64,
+      "temporal_overlap": 8,
+      "samples": [
+        "127",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Decode retoque en tiles"
+    }
+  },
+  "129": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "x": 0,
+      "y": 0,
+      "resize_source": true,
+      "destination": [
+        "113",
+        0
+      ],
+      "source": [
+        "128",
+        0
+      ],
+      "mask": [
+        "118",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Pegar solo la zona pintada - resto pixel exacto"
+    }
+  },
+  "130": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Architecture/01_Master_Retouch",
+      "images": [
+        "129",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Guardado - retoque"
+    }
+  }
+}

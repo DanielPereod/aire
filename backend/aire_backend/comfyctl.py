@@ -78,12 +78,25 @@ def _alive(pid: int) -> bool:
         return False
 
 
-def stop(home: Path) -> bool:
+def _pid_on_port(port: int) -> int:
+    """Proceso que escucha en el puerto (si comfyui.pid falta o es de un arranque anterior)."""
+    if os.name != "nt":
+        return 0
+    out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True,
+                         creationflags=NO_WINDOW).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[1].endswith(f":{port}") and parts[3].upper() == "LISTENING":
+            return int(parts[4])
+    return 0
+
+
+def stop(home: Path, cfg: dict | None = None) -> bool:
     pid_file = home / "comfyui.pid"
-    if not pid_file.exists():
-        return False
-    pid = int(pid_file.read_text().strip() or 0)
+    pid = int(pid_file.read_text().strip() or 0) if pid_file.exists() else 0
     pid_file.unlink(missing_ok=True)
+    if (not pid or not _alive(pid)) and cfg is not None:
+        pid = _pid_on_port(int(cfg.get("port", 8190)))
     if not pid or not _alive(pid):
         return False
     if os.name == "nt":

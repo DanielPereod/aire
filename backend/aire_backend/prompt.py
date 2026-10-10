@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 import numpy as np
+from PIL import Image
 
 from .scene import Scene
 
@@ -21,9 +22,96 @@ def _meaningful(name: str | None) -> bool:
     return bool(name) and not _GENERIC.match(name.strip()) and not name.strip().isdigit()
 
 
+def color_name(rgb) -> str | None:
+    """Nombre aproximado en inglés del color de un material, para que la IA no lo cambie
+    (pruebas 0.7: un suelo beige salía gris)."""
+    if not rgb or len(rgb) < 3:
+        return None
+    import colorsys
+    r, g, b = (float(c) / 255.0 for c in rgb[:3])
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    tone = "dark " if l < 0.3 else "light " if l > 0.72 else ""
+    if s < 0.12 or (l > 0.9 and s < 0.3):
+        if l > 0.9:
+            return "white"
+        if l < 0.12:
+            return "black"
+        if s >= 0.05 and r > b + 0.02:  # gris cálido (ribete beige mate de las lámparas)
+            return f"{tone}warm grey"
+        return f"{tone}grey"
+    deg = h * 360
+    if (deg < 50 or deg >= 330) and l > 0.55 and s < 0.5:
+        return "beige" if deg >= 20 else "light pink"
+    if 15 <= deg < 45 and l <= 0.55:
+        return f"{tone}brown"
+    names = [(15, "red"), (45, "orange"), (65, "yellow"), (160, "green"), (200, "teal"),
+             (255, "blue"), (290, "purple"), (330, "pink"), (360, "red")]
+    hue = next(n for limit, n in names if deg < limit)
+    muted = "muted " if s < 0.35 else ""
+    return f"{tone}{muted}{hue}"
+
+
+_FINISHES = [
+    (re.compile(r"lat[oó]n|brass|bronce|bronze", re.I), "brass"),
+    (re.compile(r"\boro\b|dorad|gold", re.I), "gold"),
+    (re.compile(r"cobre|copper", re.I), "copper"),
+    (re.compile(r"inox|stainless|acero|steel|chrom|cromad", re.I), "stainless steel"),
+    (re.compile(r"m[aá]rmol|marble", re.I), "marble"),
+    (re.compile(r"nogal|walnut|roble|oak|madera|wood", re.I), "wood"),
+    (re.compile(r"tela|fabric|tejido|textil|lino|linen|algod", re.I), "fabric"),
+    (re.compile(r"rat[aá]n|rattan|mimbre|wicker|caña|cane", re.I), "rattan"),
+    (re.compile(r"cuero|leather|piel", re.I), "leather"),
+    (re.compile(r"vidrio|cristal|glass", re.I), "glass"),
+]
+
+
+def finish(name: str | None) -> str | None:
+    """Tipo de material deducido del nombre (latón, tela…), para que la IA no lo cambie."""
+    for pat, word in _FINISHES:
+        if name and pat.search(name):
+            return word
+    return None
+
+
+_LAMP = re.compile(r"pendant|lamp|l[aá]mpara|colgante|plaf[oó]n|shade|pantalla|chandelier|ara[ñn]a", re.I)
+
+
+def _openwork(scene: Scene, info: dict) -> bool:
+    """Textura con mucho contraste o con huecos (rejilla, trenzado de caña): en una lámpara
+    es ratán aunque el material se llame «tela» (pruebas 0.9: la IA lo hacía chapa perforada)."""
+    rel = (info.get("texture") or {}).get("file")
+    if not rel:
+        return False
+    try:
+        im = Image.open(scene.root / rel)
+        im.thumbnail((256, 256))
+        if "A" in im.getbands():
+            alpha = np.asarray(im.getchannel("A"), np.float32)
+            if (alpha < 128).mean() > 0.1:
+                return True
+        lum = np.asarray(im.convert("L"), np.float32) / 255.0
+    except (OSError, ValueError):
+        return False
+    return float(lum.std()) > 0.12
+
+
+def _describe(scene: Scene, m: int, albedo: np.ndarray | None, sel: np.ndarray, obj_name: str = "") -> str:
+    info = scene.materials[m]
+    if albedo is not None and sel.any():
+        lin = ((albedo[sel].astype(np.float32) / 255.0) ** 2.2).mean(axis=0)
+        color = color_name(tuple((lin ** (1 / 2.2) * 255).round()))
+    else:
+        color = color_name(info.get("color"))
+    kind = finish(info.get("name"))
+    if _LAMP.search(obj_name or "") and kind in (None, "fabric") and _openwork(scene, info):
+        kind = "woven natural rattan cane"
+    return " ".join(w for w in (color, kind) if w)
+
+
 def scene_items(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: list[dict],
-                min_coverage: float = 0.003, limit: int = 14) -> list[str]:
-    """'Objeto (material dominante)' para los objetos con nombre que más se ven."""
+                min_coverage: float = 0.003, limit: int = 14, albedo: np.ndarray | None = None) -> list[str]:
+    """'Objeto (materiales)' para los objetos con nombre que más se ven: el dominante y los
+    que cubren ≥15 % del objeto (pruebas 0.8: el remate de latón de las lámparas salía negro)."""
     items, seen = [], set()
     for obj in sorted(visible, key=lambda o: -o["coverage"]):
         if obj["coverage"] < min_coverage or obj["type"] == "model":
@@ -36,10 +124,16 @@ def scene_items(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: li
         # Solo el nivel más alto con nombre: no repetir las patas de la silla
         if any(scene.objects[a].get("name") in seen for a in scene.ancestors(obj["id"])):
             continue
-        mask = np.isin(ids, scene.descendants(obj["id"]))
-        mats, counts = np.unique(material[mask & (material >= 0)], return_counts=True)
-        mat_name = scene.materials[int(mats[counts.argmax()])]["name"] if len(mats) else None
-        items.append(f"{name} ({mat_name})" if _meaningful(mat_name) else name)
+        mask = np.isin(ids, scene.descendants(obj["id"])) & (material >= 0)
+        mats, counts = np.unique(material[mask], return_counts=True)
+        desc = []
+        for m, c in sorted(zip(mats, counts), key=lambda t: -t[1])[:3]:
+            if c < 0.15 * counts.sum():
+                break
+            d = _describe(scene, int(m), albedo, mask & (material == m), name)
+            if d and d not in desc:
+                desc.append(d)
+        items.append(f"{name} ({', '.join(desc)})" if desc else name)
         seen.add(name)
         if len(items) >= limit:
             break
@@ -92,22 +186,79 @@ def build_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: l
 EDIT_KEEP = ("Turn this 3D render into a real photograph of the same interior. Keep exactly the same camera "
              "angle, room layout, furniture, objects, shapes, materials, colors and textures: do not add, "
              "remove, move or replace anything.")
-EDIT_LOOK = ("Make it look like professional interior design photography: realistic lighting with soft natural "
-             "shadows and contact shadows, subtle reflections on glossy surfaces, fine material detail (wood "
-             "grain, stone veining, fabric weave), natural colors, no outlines, sharp focus.")
+# Lo pequeño es lo primero que se pierde (pruebas 0.6: sillas caladas convertidas en punto
+# tejido, grifo y fregadero dorados en blanco, botes desaparecidos): se pide expresamente.
+EDIT_DETAIL = ("Preserve every small detail exactly as in the image: patterns with gaps keep their gaps, thin "
+               "legs and frames stay thin, and handles, taps, sinks, jars, bottles, appliances and small "
+               "objects keep their shape, color, finish and number; woven rattan or cane stays matte woven natural fibre, never glass or beads. Every surface keeps its own material and "
+               "its exact color and tone: fabric stays the same fabric, wood stays wood and stone stays stone.")
+EDIT_LOOK = ("Make it look like a photograph by a professional interior photographer with a full-frame camera: "
+             "physically correct light with soft shadows, contact shadows and ambient occlusion in corners, "
+             "light falling off naturally across the room, true-to-life reflections on glossy and metal "
+             "surfaces, realistic material texture at full resolution, natural colors, subtle real-world "
+             "imperfections, no CGI look, no outlines, sharp focus.")
+# Estilo «foto de catálogo» (pruebas en el PC de Dani con sus fotos de ejemplo: lo que más acerca
+# el resultado a una foto es pedir sol bajo y rasante, reflejos en el suelo y gradación cálida)
+PHOTO_STYLE = ("Style: a professional interior design catalog photograph, high dynamic range, warm natural color "
+               "grading, soft gradient of light across the ceiling, gentle reflections on the floor, rich real "
+               "material textures (wood grain, fabric weave), crisp but natural.")
+PHOTO_LIGHTS = {
+    "dia": "warm late-afternoon sunlight raking through the windows, casting long crisp patches of sunlight "
+           "and soft shadows across the floor and walls, bright airy interior",
+    "tarde": "low golden hour sunlight raking through the windows, long warm light beams across the floor and "
+             "walls, deep soft shadows",
+}
 EDIT_CREATIVE = ("You may add a few small decorative props (plants, books, ceramics) that fit the scene, but keep "
                  "all existing furniture and finishes unchanged.")
 
 
+def _where(ys: np.ndarray, xs: np.ndarray, h: int, w: int) -> str:
+    cy, cx = ys.mean() / h, xs.mean() / w
+    v = "top" if cy < 0.33 else "bottom" if cy > 0.66 else ""
+    hz = "left" if cx < 0.33 else "right" if cx > 0.66 else ""
+    return " ".join(p for p in (v, hz) if p) or "center"
+
+
+def main_surfaces(scene: Scene, ids: np.ndarray, material: np.ndarray, albedo: np.ndarray,
+                  min_coverage: float = 0.02, limit: int = 8) -> list[str]:
+    """Colores de las superficies grandes, medidos en la imagen base («beige surface at the
+    bottom (Suelo)»). Pruebas 0.7: sin esto la IA volvía gris el suelo beige y los muebles azules."""
+    h, w = material.shape
+    mats, counts = np.unique(material[material >= 0], return_counts=True)
+    out = []
+    for m, c in sorted(zip(mats, counts), key=lambda t: -t[1]):
+        if c / material.size < min_coverage or len(out) >= limit:
+            break
+        sel = material == m
+        lin = ((albedo[sel].astype(np.float32) / 255.0) ** 2.2).mean(axis=0)
+        color = color_name(tuple((lin ** (1 / 2.2) * 255).round()))
+        if not color:
+            continue
+        obj_ids, oc = np.unique(ids[sel], return_counts=True)
+        obj = scene.objects[int(obj_ids[oc.argmax()])] if len(obj_ids) and obj_ids[oc.argmax()] >= 0 else {}
+        name = next((n for n in (obj.get("name"), obj.get("definition"), scene.materials[int(m)].get("name"))
+                     if _meaningful(n)), None)
+        ys, xs = np.nonzero(sel)
+        text = f"{color} at the {_where(ys, xs, h, w)}"
+        out.append(f"{text} ({name})" if name else text)
+    return out
+
+
 def build_edit_prompt(scene: Scene, ids: np.ndarray, material: np.ndarray, visible: list[dict],
-                      user: str = "", style: str = "", light: str | None = None, creative: bool = False) -> str:
-    parts = [EDIT_KEEP, EDIT_LOOK]
-    items = scene_items(scene, ids, material, visible)
+                      user: str = "", style: str = "", light: str | None = None, creative: bool = False,
+                      albedo: np.ndarray | None = None, photo: bool = False) -> str:
+    parts = [EDIT_KEEP, EDIT_DETAIL, EDIT_LOOK] + ([PHOTO_STYLE] if photo else [])
+    if albedo is not None:
+        surfaces = main_surfaces(scene, ids, material, albedo)
+        if surfaces:
+            parts.append("Large surfaces and their exact colors: " + ", ".join(surfaces) + ".")
+    items = scene_items(scene, ids, material, visible, albedo=albedo)
     if items:
-        parts.append("Materials in the scene: " + ", ".join(items) + ".")
+        parts.append("Objects in the scene: " + ", ".join(items) + ".")
     if STYLES.get(style):
         parts.append(f"Keep the architecture and furniture, but give the decoration a feel of: {STYLES[style]}.")
-    parts.append("Lighting: " + (LIGHTS.get(light or "") or light_hint(scene)) + ".")
+    lights = {**LIGHTS, **PHOTO_LIGHTS} if photo else LIGHTS
+    parts.append("Lighting: " + (lights.get(light or "") or light_hint(scene)) + ".")
     if creative:
         parts.append(EDIT_CREATIVE)
     if user.strip():

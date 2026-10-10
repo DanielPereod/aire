@@ -22,24 +22,31 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
+from .colormatch import lock_colors
+from .photo import photo_finish
 from .comfy import ComfyClient, ComfyError
-from .fidelity import load_lines, score
-from .passes import Passes
+from .fidelity import edge_map, load_lines, score
+from .passes import Passes, supersampled_shaded
 from .prompt import build_prompt
 from .scene import load_scene
-from .workflows import KleinSettings, ZImageSettings, flux2_klein_edit, zimage_control
+from .workflows import (KleinSettings, QwenSettings, ZImageSettings, flux2_klein_edit, pad_to, qwen21_edit,
+                        qwen_size, unpad, zimage_control)
 
 
 def round16(x: float) -> int:
     return max(16, int(round(x / 16.0)) * 16)
 
 
-def prepare_passes(export_dir: str, width: int, section_keep: str = "auto") -> tuple[Passes, Path]:
+def prepare_passes(export_dir: str, width: int, section_keep: str = "auto",
+                   supersample: int = 2) -> tuple[Passes, Path]:
+    """supersample: antialiasing de la imagen base (shaded.png); 1 = sin él."""
     scene = load_scene(export_dir)
     probe = Passes(scene, width, section_keep=section_keep)
     w = round16(width)
     h = round16(w / probe.camera.aspect)
     passes = Passes(scene, w, section_keep=section_keep, height=h).render()
+    if supersample > 1:
+        passes.arrays["shaded"] = supersampled_shaded(scene, w, h, supersample, section_keep)
     out = passes.save(scene.root / f"passes_{w}x{h}")
     return passes, out
 
@@ -55,8 +62,11 @@ def sweep_grid(base: ZImageSettings) -> list[ZImageSettings]:
 
 
 def label(s) -> str:
+    if isinstance(s, QwenSettings):
+        return f"Qwen Image 2.1 · {s.width}×{s.height} · semilla {s.seed}" + (" · " + s.tag if s.tag else "")
     if isinstance(s, KleinSettings):
-        return f"FLUX klein · {s.steps} pasos · semilla {s.seed}" + (" · " + s.tag if getattr(s, "tag", "") else "")
+        size = f"{s.width}×{s.height}"
+        return f"FLUX klein · {size} · semilla {s.seed}" + (" · " + s.tag if s.tag else "")
     text = f"depth {s.depth_strength:.2f} · lines {s.lines_strength:.2f} · denoise {s.denoise:.2f}"
     return text + (f" · refine {s.refine:.2f}" if s.refine else "")
 
@@ -74,22 +84,54 @@ def contact_sheet(items: list[tuple[Image.Image, str]], cols: int = 4, tile_w: i
     return sheet
 
 
+def save_views(img: Image.Image, out_dir: Path, stem: str) -> dict:
+    """Miniatura para la galería y vista previa para el editor de la ventana de AIRE."""
+    views = {}
+    for key, size, quality in (("thumb", 640, 85), ("preview", 1600, 90)):
+        v = img.convert("RGB")
+        v.thumbnail((size, size), Image.Resampling.LANCZOS)
+        path = out_dir / f"{stem}_{key}.jpg"
+        v.save(path, quality=quality)
+        views[key] = str(path)
+    return views
+
+
 def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZImageSettings], out_dir: Path,
-                on_each=None, thumbs: bool = False) -> list[dict]:
+                on_each=None, thumbs: bool = False, base: Path | None = None) -> list[dict]:
     """Sube los pases, renderiza cada ajuste y devuelve resultados con fidelidad.
-    on_each(i, n, fase) se llama antes de cada render para informar del avance."""
-    init = client.upload_image(pdir / "shaded.png")  # imagen base fiel al modelo
+    on_each(i, n, fase) se llama antes de cada render para informar del avance.
+    base: imagen base alternativa a shaded.png (p. ej. un render de Cycles con luz real)."""
+    if base is not None:
+        fitted = pdir / "base_externa.png"
+        color_ref = Image.open(base).convert("RGB")
+        Image.open(base).convert("RGB").resize((passes.width, passes.height), Image.Resampling.LANCZOS).save(fitted)
+        init = client.upload_image(fitted)
+    else:
+        init = client.upload_image(pdir / "shaded.png")  # imagen base fiel al modelo
     needs_control = any(isinstance(s, ZImageSettings) for s in runs)
     depth = client.upload_image(pdir / "depth_control.png") if needs_control else None
     lines = client.upload_image(pdir / "edges_control.png") if needs_control else None
-    ref_lines = load_lines(pdir)
+    # Con base externa la fidelidad se mide frente a ella: Cycles nivela la cámara y su
+    # encuadre ya no coincide con las líneas calculadas con la cámara de SketchUp
+    ref_lines = edge_map(Image.open(fitted)) if base is not None else load_lines(pdir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    qwen_init = None
+    if any(isinstance(s, QwenSettings) for s in runs):
+        # Qwen trabaja a ~1 Mpx y a un tamaño múltiplo de 32 (no reencuadra); luego se amplía
+        src = pdir / "base_qwen.png"
+        qsize = qwen_size(passes.width, passes.height)
+        padded, qbox = pad_to(Image.open(fitted if base is not None else pdir / "shaded.png"), qsize)
+        padded.save(src)
+        qwen_init = client.upload_image(src)
+        client.free()  # Qwen ocupa ~16 GB: que no conviva con otro motor en la RAM
     results = []
     for i, s in enumerate(runs):
         if on_each:
             on_each(i, len(runs))
         prefix = f"aire/{out_dir.name}_{i:02d}"
-        if isinstance(s, KleinSettings):
+        if isinstance(s, QwenSettings):
+            wf = qwen21_edit(s, qwen_init, prefix=prefix)
+        elif isinstance(s, KleinSettings):
             wf = flux2_klein_edit(s, init, prefix=prefix)
         else:
             wf = zimage_control(s, depth, lines, init, prefix=prefix)
@@ -97,16 +139,20 @@ def run_renders(client: ComfyClient, passes: Passes, pdir: Path, runs: list[ZIma
         images = client.run(wf, check=(i == 0))
         secs = time.perf_counter() - t0
         img = Image.open(BytesIO(images[0]))
+        if isinstance(s, QwenSettings):
+            img = unpad(img.convert("RGB"), qbox, qsize, (passes.width, passes.height))
+        if img.size != (passes.width, passes.height):
+            img = img.convert("RGB").resize((passes.width, passes.height), Image.Resampling.LANCZOS)
+        if base is not None and getattr(s, "color_lock", 0) > 0:
+            img = lock_colors(img, color_ref, s.color_lock)
+        if getattr(s, "photo", 0) > 0:
+            img = photo_finish(img, s.photo)
         path = out_dir / f"render_{i:02d}.png"
         img.save(path)
         item = {"file": path.name, "path": str(path), "seconds": round(secs, 1), "label": label(s),
                 "fidelity": score(img, ref_lines), "settings": s.to_dict()}
         if thumbs:
-            thumb = img.convert("RGB")
-            thumb.thumbnail((640, 640))
-            tpath = out_dir / f"render_{i:02d}_thumb.jpg"
-            thumb.save(tpath, quality=85)
-            item["thumb"] = str(tpath)
+            item.update(save_views(img, out_dir, f"render_{i:02d}"))
         results.append(item)
     return results
 

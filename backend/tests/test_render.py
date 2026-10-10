@@ -47,10 +47,40 @@ OBJECT_INFO = {
     "KSamplerSelect": {"input": {"required": {"sampler_name": [["euler"]]}}},
     "Flux2Scheduler": {"input": {"required": {"steps": ["INT", {}], "width": ["INT", {}], "height": ["INT", {}]}}},
     "EmptyFlux2LatentImage": {"input": {"required": {"width": ["INT", {}], "height": ["INT", {}], "batch_size": ["INT", {}]}}},
+    "ImageScale": {"input": {"required": {"image": ["IMAGE"], "upscale_method": [["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]],
+                                          "width": ["INT", {}], "height": ["INT", {}], "crop": [["disabled", "center"]]}}},
+    "SplitSigmasDenoise": {"input": {"required": {"sigmas": ["SIGMAS"], "denoise": ["FLOAT", {}]}}},
     "SamplerCustomAdvanced": {"input": {"required": {k: ["X"] for k in ("noise", "guider", "sampler", "sigmas", "latent_image")}}},
 }
-OBJECT_INFO["UNETLoader"]["input"]["required"]["unet_name"] = [["z_image_turbo_bf16.safetensors", "flux-2-klein-4b-fp8.safetensors"]]
-OBJECT_INFO["VAELoader"]["input"]["required"]["vae_name"] = [["ae.safetensors", "flux2-vae.safetensors"]]
+# Nodos del workflow de Dani «Architecture FLUX2 · Master Render v2»
+OBJECT_INFO.update({
+    "ImageScaleToTotalPixels": {"input": {"required": {"image": ["IMAGE"], "upscale_method": [["lanczos"]],
+                                                       "megapixels": ["FLOAT", {}], "resolution_steps": ["INT", {}]}}},
+    "GetImageSize": {"input": {"required": {"image": ["IMAGE"]}}},
+    "VAEEncodeTiled": {"input": {"required": {k: ["X"] for k in (
+        "pixels", "vae", "tile_size", "overlap", "temporal_size", "temporal_overlap")}}},
+    "VAEDecodeTiled": {"input": {"required": {k: ["X"] for k in (
+        "samples", "vae", "tile_size", "overlap", "temporal_size", "temporal_overlap")}}},
+    "BasicGuider": {"input": {"required": {"model": ["MODEL"], "conditioning": ["CONDITIONING"]}}},
+})
+OBJECT_INFO["UNETLoader"]["input"]["required"]["unet_name"] = [["z_image_turbo_bf16.safetensors", "flux-2-klein-4b-fp8.safetensors",
+                                                                "qwen_image_2.1_int8_convrot.safetensors"]]
+OBJECT_INFO["VAELoader"]["input"]["required"]["vae_name"] = [["ae.safetensors", "flux2-vae.safetensors",
+                                                              "qwen_image_2.1_vae_bf16.safetensors"]]
+OBJECT_INFO["CLIPLoader"]["input"]["required"]["clip_name"] = [["qwen_3_4b.safetensors", "qwen3vl_8b_int8_convrot.safetensors"]]
+OBJECT_INFO["CLIPLoader"]["input"]["required"]["type"] = [["lumina2", "flux2", "qwen_image"]]
+OBJECT_INFO["UpscaleModelLoader"] = {"input": {"required": {"model_name": [["RealESRGAN_x4plus.pth"]]}}}
+OBJECT_INFO["ImageUpscaleWithModel"] = {"input": {"required": {"upscale_model": ["UPSCALE_MODEL"], "image": ["IMAGE"]}}}
+OBJECT_INFO["LoraLoaderModelOnly"] = {"input": {"required": {
+    "model": ["MODEL"], "lora_name": [["qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors"]],
+    "strength_model": ["FLOAT", {}]}}}
+# Nodos de Qwen Image 2.1 tal como los publica ComfyUI 0.39 (entradas de imagen dinámicas)
+OBJECT_INFO["QwenImage21Cache"] = {"input": {"required": {"model": ["MODEL"], "device": [["auto", "cpu"]],
+                                                          "dtype": [["default", "bf16"]]}}}
+OBJECT_INFO["TextEncodeQwenImage21"] = {"input": {
+    "required": {"clip": ["CLIP"], "prompt": ["STRING", {}], "negative_prompt": ["STRING", {}],
+                 "resolution": ["INT", {}], "images": ["COMFY_AUTOGROW_V3", {}]},
+    "optional": {"vae": ["VAE"]}}}
 
 
 def settings(**kw):
@@ -92,7 +122,7 @@ def test_prompt_lists_parts_and_materials(tmp_path):
     p = Passes(scene).render()
     prompt = build_prompt(scene, p.arrays["ids"], p.arrays["material"], p.visible_objects(), "nordic")
     assert prompt.startswith("nordic")
-    assert "Mesa comedor (Nogal)" in prompt and "Suelo (Tarima roble)" in prompt
+    assert "Mesa comedor (brown wood)" in prompt and "Silla (grey fabric)" in prompt
     assert "Pata" not in prompt and "Habitación" not in prompt
 
 
@@ -107,9 +137,9 @@ def test_prepare_passes_multiple_of_16(tmp_path):
 def test_model_catalog_and_recommendation():
     for p in PRESETS.values():
         assert all(f in FILES for f in p.files)
-    assert recommend(8.0) == {"render": "flux2-klein4b", "edit": "flux2-klein4b-edit"}
+    assert recommend(8.0) == {"render": "flux2-klein4b", "edit": "qwen21"}
     assert recommend(None) == {"render": None, "edit": None}
-    assert recommend(24)["edit"] in ("flux2-dev-edit", "qwen2511-edit")
+    assert recommend(24)["edit"] in ("flux2-dev-edit", "qwen2511-edit", "qwen21-grande")
     assert weight_dtype_for(8.0) == "fp8_e4m3fn" and weight_dtype_for(24) == "default"
 
 
@@ -147,6 +177,9 @@ class FakeComfy(BaseHTTPRequestHandler):
         elif self.path == "/prompt":
             FakeComfy.queued.append(json.loads(body)["prompt"])
             self._send({"prompt_id": "p1", "number": 0, "node_errors": {}})
+        elif self.path == "/free":
+            FakeComfy.freed += 1
+            self._send({})
 
 
 @pytest.fixture
@@ -155,6 +188,7 @@ def fake_server():
     Image.new("RGB", (8, 8), (10, 20, 30)).save(buf, "PNG")
     FakeComfy.png = buf.getvalue()
     FakeComfy.queued = []
+    FakeComfy.freed = 0
     srv = HTTPServer(("127.0.0.1", 0), FakeComfy)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}"
@@ -209,6 +243,29 @@ def test_klein_edit_workflow_structure():
     assert sched["inputs"] == {"steps": 4, "width": 1024, "height": 672}
 
 
+def test_klein_two_pass_workflow():
+    """Alta calidad: 1.ª pasada a ~1 MP con la base reducida y 2.ª pasada de detalle a tamaño
+    final que parte de la foto ampliada y usa la base completa como referencia."""
+    from aire_backend.workflows import KleinSettings, flux2_klein_edit
+    s = KleinSettings(width=1920, height=1376, prompt="p", seed=3, upscale=1.5, refine_denoise=0.4)
+    assert s.first_pass_size() == (1280, 912)
+    wf = flux2_klein_edit(s, "aire/shaded.png")
+    assert validate(wf, OBJECT_INFO) == []
+    by_type = lambda t: [n["inputs"] for n in wf.values() if n["class_type"] == t]  # noqa: E731
+    assert [(x["width"], x["height"]) for x in by_type("Flux2Scheduler")] == [(1280, 912), (1920, 1376)]
+    assert by_type("Flux2Scheduler")[1]["steps"] == 10 and by_type("SplitSigmasDenoise")[0]["denoise"] == 0.4
+    assert by_type("EmptyFlux2LatentImage")[0]["width"] == 1280
+    assert len(by_type("SamplerCustomAdvanced")) == 2 and len(by_type("LoadImage")) == 1
+    second = by_type("SamplerCustomAdvanced")[1]
+    assert second["sigmas"][1] == 1  # low_sigmas: solo los últimos pasos
+    assert wf[second["latent_image"][0]]["class_type"] == "VAEEncode"  # parte de la foto ampliada
+    assert len(by_type("ReferenceLatent")) == 4
+    # Sin ampliación: una sola pasada, como antes
+    single = flux2_klein_edit(KleinSettings(width=1024, height=736, prompt="p"), "aire/shaded.png")
+    assert [n["class_type"] for n in single.values()].count("SamplerCustomAdvanced") == 1
+    assert "ImageScale" not in [n["class_type"] for n in single.values()]
+
+
 @pytest.mark.skipif(not os.environ.get("AIRE_COMFY_URL"), reason="AIRE_COMFY_URL no definido")
 def test_real_comfy_accepts_klein_workflow(tmp_path):
     from aire_backend.workflows import KleinSettings, flux2_klein_edit
@@ -217,9 +274,135 @@ def test_real_comfy_accepts_klein_workflow(tmp_path):
     img = tmp_path / "x.png"
     Image.new("RGB", (64, 64)).save(img)
     name = client.upload_image(img)
-    wf = flux2_klein_edit(KleinSettings(width=512, height=512, prompt="test"), name)
-    assert validate(wf, client.object_info()) == []
-    req = urllib.request.Request(url + "/prompt", json.dumps({"prompt": wf}).encode(),
-                                 {"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as r:
-        assert json.loads(r.read())["node_errors"] == {}
+    for up in (1.0, 1.5):
+        wf = flux2_klein_edit(KleinSettings(width=768, height=512, prompt="test", upscale=up), name)
+        assert validate(wf, client.object_info()) == []
+        req = urllib.request.Request(url + "/prompt", json.dumps({"prompt": wf}).encode(),
+                                     {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as r:
+            assert json.loads(r.read())["node_errors"] == {}
+
+
+def test_color_names_keep_floor_tone():
+    from aire_backend.prompt import color_name
+    assert color_name((222, 205, 180)) == "beige"
+    assert color_name((150, 150, 150)) == "grey"
+    assert color_name((70, 100, 140)) == "muted blue"
+    assert color_name(None) is None
+
+
+def test_edit_prompt_names_colors_of_large_surfaces(tmp_path):
+    from aire_backend.prompt import build_edit_prompt
+    passes, _ = prepare_passes(str(build_interior(tmp_path / "e")), 320)
+    a = passes.arrays
+    text = build_edit_prompt(passes.scene, a["ids"], a["material"], passes.visible_objects(), albedo=a["albedo"])
+    assert "brown at the bottom (Suelo)" in text and "white at the top (Paredes)" in text
+    assert "grey" not in text.split("Large surfaces")[0]  # sin palabras de color que empujen
+
+
+def test_klein_retouch_workflow():
+    from aire_backend.workflows import KleinSettings, flux2_klein_retouch
+    wf = flux2_klein_retouch(KleinSettings(width=1920, height=1376, prompt="p"), "aire/cycles.png", 0.2)
+    assert validate(wf, OBJECT_INFO) == []
+    split = next(n for n in wf.values() if n["class_type"] == "SplitSigmasDenoise")
+    assert split["inputs"]["denoise"] == 0.2
+
+
+def test_klein_first_pass_can_start_from_base():
+    from aire_backend.workflows import KleinSettings, flux2_klein_edit
+    wf = flux2_klein_edit(KleinSettings(width=1920, height=1376, prompt="p", upscale=1.5, base_denoise=0.8),
+                          "aire/cycles.png")
+    assert validate(wf, OBJECT_INFO) == []
+    first = [n for n in wf.values() if n["class_type"] == "SamplerCustomAdvanced"][0]["inputs"]
+    assert wf[first["latent_image"][0]]["class_type"] == "VAEEncode" and first["sigmas"][1] == 1
+    assert "EmptyFlux2LatentImage" not in [n["class_type"] for n in wf.values()]
+
+
+def test_lock_colors_takes_reference_hue_keeps_detail():
+    import numpy as np
+    from PIL import Image
+    from aire_backend.colormatch import lock_colors
+
+    # IA: suelo amarillento con una franja de detalle; referencia: gris neutro
+    ai = np.full((64, 96, 3), (210, 180, 120), np.uint8)
+    ai[:, 40:44] = (120, 100, 60)
+    ref = Image.new("RGB", (96, 64), (180, 180, 180))
+    out = np.asarray(lock_colors(Image.fromarray(ai), ref, radius=2), np.int16)
+    r, g, b = out[10, 10]
+    assert abs(r - b) < 12  # el amarillo pasa a neutro
+    assert out[10, 41].sum() < out[10, 10].sum() - 150  # la franja oscura (luminancia de la IA) sigue
+    same = lock_colors(Image.fromarray(ai), ref, strength=0)
+    assert np.array_equal(np.asarray(same), ai)
+
+
+def test_lamp_with_openwork_texture_is_rattan(tmp_path):
+    from types import SimpleNamespace
+    import numpy as np
+    from PIL import Image
+    from aire_backend.prompt import _describe, color_name
+
+    grid = np.full((64, 64), 200, np.uint8)
+    grid[::8, :] = grid[:, ::8] = 40  # rejilla de caña
+    Image.fromarray(grid).convert("RGB").save(tmp_path / "rejilla.jpg")
+    Image.new("RGB", (64, 64), (190, 170, 140)).save(tmp_path / "lino.jpg")
+    scene = SimpleNamespace(root=tmp_path, materials={
+        1: {"name": "TELA BEGE", "color": [194, 168, 138], "texture": {"file": "rejilla.jpg"}},
+        2: {"name": "TELA BEGE", "color": [194, 168, 138], "texture": {"file": "lino.jpg"}}})
+    sel = np.zeros(1, bool)
+    assert _describe(scene, 1, None, sel, "pendant") == "beige woven natural rattan cane"
+    assert _describe(scene, 1, None, sel, "sofa") == "beige fabric"
+    assert _describe(scene, 2, None, sel, "pendant") == "beige fabric"
+    assert color_name((195, 186, 182)) == "light warm grey"
+
+
+def test_photo_finish_is_subtle_and_deterministic():
+    import numpy as np
+    from PIL import Image
+    from aire_backend.photo import photo_finish
+
+    img = Image.new("RGB", (200, 120), (128, 128, 128))
+    a, b = np.asarray(photo_finish(img), np.int16), np.asarray(photo_finish(img), np.int16)
+    assert np.array_equal(a, b)
+    assert abs(a[60, 100].mean() - 128) < 12  # el centro casi no cambia
+    assert a[:10, :10].mean() < a[55:65, 95:105].mean()  # esquinas algo más oscuras
+
+
+def test_level_view_straightens_verticals():
+    import math
+    import numpy as np
+    from aire_backend.camera import Camera, level_view
+
+    pitch = math.radians(-20)
+    cam = Camera(eye=np.zeros(3), target=np.array([0.0, math.cos(pitch), math.sin(pitch)]),
+                 up=np.array([0.0, 0.0, 1.0]), perspective=True, vfov=math.radians(50),
+                 ortho_height=1.0, aspect=1.5)
+    (r, u, b), shift = level_view(cam)
+    assert np.allclose(u, [0, 0, 1]) and abs(b[2]) < 1e-9  # cámara nivelada
+    # el centro de la imagen sigue apuntando al mismo sitio
+    assert math.isclose(shift, math.tan(pitch) / (2 * math.tan(math.radians(25))))
+    assert shift < 0
+    level = Camera(eye=np.zeros(3), target=np.array([0.0, 1.0, 0.0]), up=np.array([0.0, 0.0, 1.0]),
+                   perspective=True, vfov=1.0, ortho_height=1.0, aspect=1.5)
+    assert level_view(level) is None
+
+
+def _box_room(ceiling: bool):
+    import numpy as np
+    W, D, H = 4.0, 3.0, 2.6
+    quads = [((0, 0, 0), (W, 0, 0), (W, 0, H), (0, 0, H)), ((0, D, 0), (W, D, 0), (W, D, H), (0, D, H)),
+             ((0, 0, 0), (0, D, 0), (0, D, H), (0, 0, H)), ((W, 0, 0), (W, D, 0), (W, D, H), (W, 0, H)),
+             ((0, 0, 0), (W, 0, 0), (W, D, 0), (0, D, 0))]
+    if ceiling:
+        quads.append(((0, 0, H), (W, 0, H), (W, D, H), (0, D, H)))
+    tris = []
+    for a, b, c, d in quads:
+        tris += [(a, b, c), (a, c, d)]
+    return np.array(tris, dtype=float)
+
+
+def test_ceiling_added_only_when_missing_and_camera_inside():
+    from aire_backend.room import ceiling_height
+    eye = (2.0, 0.5, 1.4)
+    assert abs(ceiling_height(_box_room(False), eye) - 2.6) < 1e-6
+    assert ceiling_height(_box_room(True), eye) is None
+    assert ceiling_height(_box_room(False), (2.0, -3.0, 5.0)) is None  # vista desde arriba

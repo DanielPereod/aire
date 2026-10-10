@@ -11,7 +11,7 @@ module Aire
   # preparar AIRE una vez, elegir estilo y luz, y pulsar "Renderizar esta vista".
   class Window
     STALE_SECONDS = 15 * 60 # sin noticias de una tarea en marcha = se interrumpió
-    WIDTHS = { 'rapida' => 1024, 'alta' => 1536, 'comparar' => 1024 }.freeze
+    WIDTHS = { 'rapida' => 1024, 'alta' => 1920, 'real' => 1920, 'comparar' => 1920 }.freeze
 
     def self.show
       @instance ||= new
@@ -19,25 +19,37 @@ module Aire
     end
 
     def initialize
-      @dialog = UI::HtmlDialog.new(
-        dialog_title: 'AIRE · Render con IA', preferences_key: 'AIRE_window',
-        width: 460, height: 820, min_width: 380, min_height: 560,
-        style: UI::HtmlDialog::STYLE_DIALOG
-      )
-      @dialog.set_file(File.join(__dir__, 'ui', 'index.html'))
       @job_dir = nil
+      @job_kind = nil
       @timer = nil
-      register_callbacks
+      build_dialog
     end
 
     def show
-      @dialog.visible? ? @dialog.bring_to_front : @dialog.show
+      return @dialog.bring_to_front if @dialog.visible?
+
+      # Al cerrar la ventana SketchUp olvida sus callbacks: al reabrirla la página no recibía
+      # respuesta («SketchUp no ha respondido»). Se crea una ventana nueva cada vez.
+      build_dialog if @closed
+      @dialog.show
     end
 
     private
 
+    def build_dialog
+      @closed = false
+      @dialog = UI::HtmlDialog.new(
+        dialog_title: 'AIRE · Render con IA', preferences_key: 'AIRE_window',
+        width: 560, height: 900, min_width: 420, min_height: 600,
+        style: UI::HtmlDialog::STYLE_DIALOG
+      )
+      @dialog.set_file(File.join(__dir__, 'ui', 'index.html'))
+      register_callbacks
+    end
+
     def register_callbacks
       on('ready') { |_ctx| push_state(history: true) }
+      on('gallery') { |_ctx| push_state(history: true) }
       on('install') { |_ctx| start_install }
       on('render') { |_ctx, json| start_render(JSON.parse(json)) }
       on('open_image') { |_ctx, path| open_path(path) }
@@ -45,7 +57,16 @@ module Aire
       on('open_log') { |_ctx, path| open_path(path) }
       on('save_image') { |_ctx, path| save_image(path) }
       on('open_jobs') { |_ctx| open_jobs }
-      @dialog.set_on_closed { stop_timer }
+      on('edit_load') { |_ctx, path| edit_load(path) }
+      on('pick_reference') { |_ctx| pick_reference }
+      on('edit') { |_ctx, json| start_edit(JSON.parse(json)) }
+      on('enhance') { |_ctx, path| start_enhance(path.to_s) }
+      on('upscale') { |_ctx, path| start_upscale(path.to_s) }
+      on('set_option') { |_ctx, json| set_option(JSON.parse(json)) }
+      @dialog.set_on_closed do
+        stop_timer
+        @closed = true
+      end
     end
 
     # Ningún error de Ruby debe dejar la ventana en blanco: se registra y se muestra.
@@ -80,13 +101,47 @@ module Aire
     def push_state(history: false)
       state = {
         ready: Env.ready?,
-        config: Env.config.slice('gpu', 'vram_gb', 'ram_gb', 'preset_title'),
+        config: Env.config.slice('gpu', 'vram_gb', 'ram_gb', 'preset_title', 'qwen_variant'),
+        qwen_downloaded: qwen_downloaded,
         setup: task_state(Env.setup_progress_file),
-        job: @job_dir ? task_state(File.join(@job_dir, 'job.json')) : nil
+        job: @job_dir ? task_state(File.join(@job_dir, 'job.json')) : nil,
+        job_kind: @job_kind
       }
       state[:history] = history_items if history
       js("aire.setState(#{JSON.generate(state)})")
       ensure_timer if running?(state[:setup]) || running?(state[:job])
+    end
+
+    # Ficheros de cada variante de Qwen (backend/aire_backend/models.py, presets qwen21*)
+    QWEN_VAE = 'vae/qwen_image_2.1_vae_bf16.safetensors'
+    QWEN_FILES = {
+      'turbo' => ['diffusion_models/qwen_image_2.1_int8_convrot.safetensors',
+                  'text_encoders/qwen3vl_8b_int8_convrot.safetensors', QWEN_VAE,
+                  'loras/qwen_image_2.1_turbo_lora_avg_rank_178_bf16.safetensors'],
+      'estandar' => ['diffusion_models/qwen_image_2.1_int8_convrot.safetensors',
+                     'text_encoders/qwen3vl_8b_int8_convrot.safetensors', QWEN_VAE],
+      'ligero' => ['diffusion_models/qwen_image_2.1_Q4_K_M.gguf', 'text_encoders/qwen3vl_8b_w4a8.safetensors', QWEN_VAE],
+      'grande' => ['diffusion_models/qwen_image_2.1_bf16.safetensors',
+                   'text_encoders/qwen3vl_8b_bf16.safetensors', QWEN_VAE]
+    }.freeze
+
+    def qwen_downloaded
+      dir = Env.config['comfy_dir']
+      return [] unless dir
+
+      QWEN_FILES.select { |_v, files| files.all? { |f| File.size?(File.join(dir, 'models', f)) } }.keys
+    end
+
+    # Opciones que el usuario cambia en la ventana; se guardan en config.json
+    def set_option(opts)
+      variant = opts['qwen_variant'].to_s
+      return unless QWEN_FILES.key?(variant)
+
+      path = File.join(Env.home, 'config.json')
+      cfg = Env.config
+      cfg['qwen_variant'] = variant
+      File.write(path, JSON.pretty_generate(cfg), mode: 'w:UTF-8')
+      push_state
     end
 
     def task_state(path)
@@ -129,8 +184,10 @@ module Aire
       setup = task_state(Env.setup_progress_file)
       job = @job_dir ? task_state(File.join(@job_dir, 'job.json')) : nil
       finished = !running?(setup) && !running?(job)
-      push_state(history: finished && job && job['state'] == 'done')
+      done = finished && job && job['state'] == 'done'
+      push_state(history: done)
       stop_timer if finished
+      edit_finished(job) if done && @job_kind == 'edit'
     end
 
     # ------------------------------------------------------------------ acciones
@@ -151,9 +208,17 @@ module Aire
       return if @job_dir && running?(task_state(File.join(@job_dir, 'job.json')))
 
       quality = WIDTHS.key?(params['quality']) ? params['quality'] : 'alta'
+      model = Sketchup.active_model
+      if !@warned_big && big_model?(model)
+        # SketchUp se queda parado mientras se lee la geometría: avisar antes y dejar que la ventana lo pinte
+        @warned_big = true
+        js("aire.toast(#{JSON.generate('Modelo grande: SketchUp se quedará parado unos minutos mientras AIRE lo lee. No lo cierres.')})")
+        UI.start_timer(0.3, false) { start_render(params) }
+        return
+      end
+      @warned_big = false
       job_dir = File.join(Env.home, 'jobs', Time.now.strftime('%Y%m%d-%H%M%S'))
       export_dir = File.join(job_dir, 'export')
-      model = Sketchup.active_model
       result = Exporter.new(model, model.active_view, width: WIDTHS[quality]).export(export_dir)
       if result[:triangles].zero?
         FileUtils.rm_rf(job_dir)
@@ -170,9 +235,126 @@ module Aire
                             '--variants', params['variants'].to_i.clamp(1, 4).to_s,
                             '--prompt-file', prompt_file, '--progress', progress])
       @job_dir = job_dir
+      @job_kind = 'render'
       push_state
     rescue StandardError => e
       notify("No se ha podido leer el modelo: #{e.message}")
+    end
+
+    BIG_MODEL_BYTES = 50 * 1024 * 1024
+
+    def big_model?(model)
+      model.path.to_s != '' && File.exist?(model.path) && File.size(model.path) > BIG_MODEL_BYTES
+    rescue StandardError
+      false
+    end
+
+    # ------------------------------------------------------------------ edición
+    IMAGE_TYPES = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg',
+                    '.webp' => 'image/webp' }.freeze
+    MAX_REFERENCE_BYTES = 25 * 1024 * 1024
+
+    def data_url(path)
+      type = IMAGE_TYPES[File.extname(path).downcase] || 'image/png'
+      "data:#{type};base64,#{Base64.strict_encode64(File.binread(path))}"
+    end
+
+    # Vista previa ligera (jpg de 1600 px) si existe; si no, la imagen original
+    def preview_of(path)
+      res = Env.read_json(File.join(File.dirname(path), 'result.json'))
+      item = res && res['images'].to_a.find { |i| File.expand_path(i['path'].to_s) == File.expand_path(path) }
+      prev = item && item['preview']
+      prev && File.exist?(prev) ? prev : path
+    end
+
+    def edit_load(path)
+      return notify('No se encuentra esa imagen.') unless path && File.exist?(path)
+
+      res = Env.read_json(File.join(File.dirname(path), 'result.json')) || {}
+      source = res['source'] && File.exist?(res['source']) ? data_url(preview_of(res['source'])) : nil
+      data = { path: path, src: data_url(preview_of(path)), source: source }
+      js("aire.editImage(#{JSON.generate(data)})")
+    end
+
+    def pick_reference
+      dir = Sketchup.read_default('AIRE', 'reference_dir', Dir.home)
+      path = UI.openpanel('Elige una imagen de referencia', dir, 'Imágenes|*.png;*.jpg;*.jpeg;*.webp||')
+      return unless path && File.exist?(path)
+
+      Sketchup.write_default('AIRE', 'reference_dir', File.dirname(path))
+      return notify('Esa imagen es demasiado grande (más de 25 MB).') if File.size(path) > MAX_REFERENCE_BYTES
+      return notify('Usa una imagen PNG, JPG o WEBP.') unless IMAGE_TYPES.key?(File.extname(path).downcase)
+
+      ref = { path: path, name: File.basename(path), src: data_url(path) }
+      js("aire.addReference(#{JSON.generate(ref)})")
+    end
+
+    def start_edit(params)
+      return notify('AIRE todavía no está preparado.') unless Env.ready?
+      return notify('Espera a que termine la imagen en curso.') if @job_dir && running?(task_state(File.join(@job_dir, 'job.json')))
+
+      image = params['path'].to_s
+      return notify('No se encuentra esa imagen.') unless File.exist?(image)
+
+      job_dir = File.join(Env.home, 'jobs', "#{Time.now.strftime('%Y%m%d-%H%M%S')}-cambio")
+      FileUtils.mkdir_p(job_dir)
+      prompt_file = File.join(job_dir, 'cambio.txt')
+      File.write(prompt_file, params['prompt'].to_s, mode: 'w:UTF-8')
+      args = ['--home', Env.home, '--image', image, '--job-dir', job_dir, '--prompt-file', prompt_file]
+      mask = params['mask'].to_s
+      if mask.start_with?('data:image/png;base64,')
+        mask_file = File.join(job_dir, 'zona.png')
+        File.binwrite(mask_file, Base64.decode64(mask.split(',', 2)[1]))
+        args += ['--mask', mask_file]
+      end
+      Array(params['refs']).first(3).each { |r| args += ['--ref', r.to_s] if File.exist?(r.to_s) }
+      progress = File.join(job_dir, 'job.json')
+      File.write(progress, JSON.generate(state: 'running', steps: ['Preparando la imagen'], step: 0,
+                                         title: 'Preparando la imagen', detail: '', updated: Time.now.to_f))
+      Runner.python('edit', args + ['--progress', progress])
+      @job_dir = job_dir
+      @job_kind = 'edit'
+      push_state
+    end
+
+    # «Procesar con IA» sobre una imagen ya creada: sale como imagen nueva en la galería
+    def start_enhance(image)
+      return notify('AIRE todavía no está preparado.') unless Env.ready?
+      return notify('Espera a que termine la imagen en curso.') if @job_dir && running?(task_state(File.join(@job_dir, 'job.json')))
+      return notify('No se encuentra esa imagen.') unless File.exist?(image)
+
+      job_dir = File.join(Env.home, 'jobs', "#{Time.now.strftime('%Y%m%d-%H%M%S')}-ia")
+      FileUtils.mkdir_p(job_dir)
+      progress = File.join(job_dir, 'job.json')
+      File.write(progress, JSON.generate(state: 'running', steps: ['Preparando la imagen'], step: 0,
+                                         title: 'Preparando la imagen', detail: '', updated: Time.now.to_f))
+      Runner.python('enhance', ['--home', Env.home, '--image', image, '--job-dir', job_dir, '--progress', progress])
+      @job_dir = job_dir
+      @job_kind = 'render'
+      push_state
+    end
+
+    # «Ampliar» una imagen de la galería: sale como imagen nueva (2×, Real-ESRGAN)
+    def start_upscale(image)
+      return notify('AIRE todavía no está preparado.') unless Env.ready?
+      return notify('Espera a que termine la imagen en curso.') if @job_dir && running?(task_state(File.join(@job_dir, 'job.json')))
+      return notify('No se encuentra esa imagen.') unless File.exist?(image)
+
+      job_dir = File.join(Env.home, 'jobs', "#{Time.now.strftime('%Y%m%d-%H%M%S')}-ampliada")
+      FileUtils.mkdir_p(job_dir)
+      progress = File.join(job_dir, 'job.json')
+      File.write(progress, JSON.generate(state: 'running', steps: ['Preparando la imagen'], step: 0,
+                                         title: 'Preparando la imagen', detail: '', updated: Time.now.to_f))
+      Runner.python('upscale', ['--home', Env.home, '--image', image, '--job-dir', job_dir, '--factor', '2',
+                                '--progress', progress])
+      @job_dir = job_dir
+      @job_kind = 'render'
+      push_state
+    end
+
+    def edit_finished(job)
+      path = job.dig('result', 'images', 0, 'path')
+      js("aire.editDone(#{JSON.generate({ path: path })})") if path
     end
 
     def save_image(path)
@@ -198,17 +380,26 @@ module Aire
 
     # ------------------------------------------------------------------ galería
     def history_items(limit = 24)
-      dirs = Dir.glob(File.join(Env.home, 'jobs', '*')).sort.reverse
+      # Dir.glob trata «\» como escape: con C:\Users\... no encuentra nada en Windows
+      dirs = Dir.glob(File.join(Env.home.tr('\\', '/'), 'jobs', '*')).sort.reverse
       items = []
       dirs.each do |dir|
         res = Env.read_json(File.join(dir, 'renders', 'result.json'))
-        next unless res
+        next unless res.is_a?(Hash)
 
-        res['images'].each do |img|
-          thumb = img['thumb'] && File.exist?(img['thumb']) ? Base64.strict_encode64(File.binread(img['thumb'])) : nil
-          items << { path: img['path'], thumb: thumb && "data:image/jpeg;base64,#{thumb}",
-                     style: res['style'], light: res['light'], text: res['user_prompt'],
-                     created: res['created'], label: img['label'], quality: res['quality'] }
+        # un trabajo raro (copiado, a medias o de otra versión) no debe dejar vacía la galería
+        begin
+          Array(res['images']).each do |img|
+            next unless img.is_a?(Hash) && img['path'] && File.exist?(img['path'])
+
+            thumb = img['thumb'] && File.exist?(img['thumb']) ? Base64.strict_encode64(File.binread(img['thumb'])) : nil
+            items << { path: img['path'], thumb: thumb && "data:image/jpeg;base64,#{thumb}",
+                       style: res['style'], light: res['light'], text: res['user_prompt'],
+                       created: res['created'], label: img['label'], quality: res['quality'],
+                       kind: res['kind'] || 'render', source: res['source'] }
+          end
+        rescue StandardError
+          next
         end
         break if items.size >= limit
       end
